@@ -208,7 +208,7 @@ no_ "t2, on $TWO with no rule, -> $EXT" pings $T2 "$EXT"
 yes_ "m2, on both, -> b:5432 over $NET" tcp $M2 "$(ip4 $B)" 5432
 yes_ "m2 -> t:80 over $TWO" tcp $M2 "$(ipon $T $TWO)" 80
 no_ "t2 -> t:80 (no rule)" tcp $T2 "$(ipon $T $TWO)" 80
-yes_ "both of m2's veths jump to its chains, none is dropped" sh -c "[ \"\$(nft list map bridge fw out_by_port | grep -c '$(key $M2)_out')\" = 2 ]"
+yes_ "both of m2's veths jump to its chains, none is dropped" sh -c "[ \"\$(nft list map bridge fw out_by_port | grep -o '$(key $M2)_out' | wc -l)\" = 2 ]"
 no_ "$TWO's bridge is in the open set" sh -c "nft list set bridge fw open_bridges | grep -q br-$(docker network inspect -f '{{.Id}}' $TWO | cut -c1-12)"
 
 say "on a live system, edits apply only through dfw apply"
