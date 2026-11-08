@@ -45,9 +45,18 @@ Installing activates nothing and changes no traffic, even after a reboot.
 ### Development builds
 
 Every push to the `dev` branch is published to a separate `dev` channel of
-the same repository. To try it on a test host, use `dev` instead of `stable`
-in the source line. Development versions look like `0.1.0+dev5.gabc1234`
-(5 commits after `v0.1.0`): newer than that release, older than the next one.
+the same repository. To try it on a test host, add a second source line:
+
+```sh
+echo "deb [signed-by=/etc/apt/keyrings/lpaolini.gpg] https://lpaolini.github.io/apt dev main" | sudo tee /etc/apt/sources.list.d/lpaolini-dev.list
+sudo apt update && sudo apt upgrade
+```
+
+Development versions look like `0.1.0+dev5.gabc1234` (5 commits after
+`v0.1.0`): newer than that release, older than the next one. To go back to
+stable, delete `lpaolini-dev.list`, run `sudo apt update`, and reinstall the
+stable version explicitly (apt never downgrades on its own), for example
+`sudo apt install dfw=0.1.0`.
 
 ## Rules
 
