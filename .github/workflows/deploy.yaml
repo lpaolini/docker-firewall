@@ -1,0 +1,190 @@
+name: build
+
+# Builds the dfw Debian packages for amd64 and arm64 and runs the unit, gate
+# and acceptance tests on every push and pull request.
+#   push to dev       -> rolling "dev" pre-release -> APT suite "dev"
+#   tag vX.Y.Z (main) -> GitHub release vX.Y.Z    -> APT suite "stable"
+#   manual run        -> rebuild the APT repository from the existing releases
+# The repository is always rebuilt from both channels, because every Pages
+# deployment replaces the whole site.
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    outputs:
+      channel: ${{ steps.version.outputs.channel }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential debhelper \
+            golang-go lintian binutils-aarch64-linux-gnu dpkg-dev git ca-certificates
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # version.sh needs the tags and history
+      - name: Resolve version and channel
+        id: version
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version="$(packaging/version.sh)"
+          channel=none
+          if [[ "$GITHUB_EVENT_NAME" = push && "$GITHUB_REF_TYPE" = tag ]]; then
+            if [[ "$version" != "${GITHUB_REF_NAME#v}" ]]; then
+              echo "Tag $GITHUB_REF_NAME does not resolve to a release version (got $version)" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "Release tags must point to a commit on main" >&2
+              exit 1
+            fi
+            if [[ "$(dpkg-parsechangelog -S Version)" != "$version" ]]; then
+              echo "debian/changelog has no entry for $version" >&2
+              exit 1
+            fi
+            channel=stable
+          elif [[ "$GITHUB_EVENT_NAME" = push && "$GITHUB_REF" = refs/heads/dev ]]; then
+            channel=dev
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "Building $version (channel: $channel)"
+      - name: No third-party Go modules
+        run: |
+          if grep -q '^require' go.mod || [ -e go.sum ]; then
+            echo "go.mod must have no require lines and there must be no go.sum"; exit 1
+          fi
+      - name: Unit tests
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+      - name: Build packages
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p /tmp/b && cp -r . /tmp/b/dfw && cd /tmp/b/dfw
+          sed -i "1s/^dfw ([^)]*)/dfw ($VERSION)/" debian/changelog
+          dpkg-buildpackage -us -uc
+          DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -B -us -uc -a arm64 -d -Pcross,nocheck
+          cd /tmp/b
+          lintian --pedantic --fail-on error,warning dfw_*_amd64.changes dfw_*_arm64.changes
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp *.deb "$GITHUB_WORKSPACE/dist/"
+          cd "$GITHUB_WORKSPACE/dist" && sha256sum *.deb > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: packages
+          path: dist/
+          if-no-files-found: error
+
+  # Needs root and a real kernel with nf_conntrack_bridge. GitHub has no
+  # Debian runners; Ubuntu's kernel and Docker stand in. The gate test proper
+  # is run by hand on Debian 13 (docs/design.md, section 8).
+  integration:
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: packages
+          path: dist
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y nftables conntrack tcpdump jq socat
+      - name: Build the test image
+        run: printf 'FROM alpine:3.22\nRUN apk add --no-cache socat curl bind-tools tcpdump iproute2\n' | docker build -q -t dfw-tools -
+      - name: Gate test
+        run: |
+          sudo PRIO=-150 test/gate.sh q1
+          sudo PRIO=-150 N=200 test/gate.sh first
+      - name: Acceptance tests
+        run: sudo test/integration.sh dist/dfw_*_amd64.deb
+      - name: Unit tests as root, against the real nft
+        run: |
+          sudo DFW_TEST_APPLY=1 "$(command -v go)" test ./internal/nft/
+
+  # Releasing and deploying run as one serialized job, so a newer dev push can
+  # never replace the dev release while an older run is still deploying it.
+  publish:
+    needs: [package, integration]
+    if: needs.package.outputs.channel != 'none' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CHANNEL: ${{ needs.package.outputs.channel }}
+      VERSION: ${{ needs.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: env.CHANNEL != 'none'
+        with:
+          name: packages
+          path: dist
+      - name: Publish stable release
+        if: env.CHANNEL == 'stable'
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+      - name: Publish rolling dev pre-release
+        if: env.CHANNEL == 'dev'
+        run: |
+          gh release delete dev --cleanup-tag --yes 2>/dev/null || true
+          gh release create dev dist/* --prerelease --latest=false \
+            --target "$GITHUB_SHA" --title "Development build $VERSION" \
+            --notes "Automatic build of $GITHUB_SHA from the dev branch. Not for production use."
+      - name: Install repository tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg
+      - name: Download released packages
+        run: |
+          suites=()
+          # Without a tag, gh picks the latest release, which is never the dev pre-release.
+          if gh release download --pattern '*.deb' --dir channels/stable; then
+            suites+=(stable=channels/stable)
+          fi
+          if gh release download dev --pattern '*.deb' --dir channels/dev; then
+            suites+=(dev=channels/dev)
+          fi
+          if [ ${#suites[@]} -eq 0 ]; then
+            echo "No stable or dev release to publish" >&2; exit 1
+          fi
+          echo "SUITES=${suites[*]}" >> "$GITHUB_ENV"
+      - name: Build APT repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APT_SIGNING_PASSPHRASE: ${{ secrets.APT_SIGNING_PASSPHRASE }}
+          REQUIRE_APT_SIGNING: '1'
+        run: |
+          # shellcheck disable=SC2086  # SUITES is a list of SUITE=DIR words
+          packaging/build-repository.sh public \
+            "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}" $SUITES
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

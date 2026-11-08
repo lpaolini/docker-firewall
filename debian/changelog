@@ -1,0 +1,7 @@
+dfw (0.1.0) unstable; urgency=medium
+
+  * Initial release: a bridge-level nftables firewall for the containers on
+    chosen Docker networks, with allow rules in /etc/dfw/rules and
+    /etc/dfw/rules.d (docs/rules.md, docs/design.md).
+
+ -- dfw maintainers <lookap.dev@gmail.com>  Sun, 08 Nov 2026 12:00:00 +0000

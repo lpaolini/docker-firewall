@@ -1,0 +1,299 @@
+add table bridge fw
+delete table bridge fw
+table bridge fw {
+	set open_bridges {
+		type ifname
+		elements = { "docker0",
+			     "br-0123456789ab" }
+	}
+	map out_by_port {
+		type iface_index : verdict
+		elements = { 11 : jump c0123456789abcdef_out,
+			     12 : jump c0123456789abcdef_out,
+			     13 : jump cfedcba9876543210_out,
+			     14 : drop }
+	}
+	map in_by_port {
+		type iface_index : verdict
+		elements = { 11 : jump c0123456789abcdef_in,
+			     12 : jump c0123456789abcdef_in,
+			     13 : jump cfedcba9876543210_in,
+			     14 : drop }
+	}
+	chain from_container {
+		type filter hook prerouting priority -150; policy accept;
+		iif vmap @out_by_port
+		iifname "veth*" meta ibrname != @open_bridges counter drop
+	}
+	chain to_container {
+		type filter hook postrouting priority -150; policy accept;
+		oif vmap @in_by_port
+		oifname "veth*" meta obrname != @open_bridges counter drop
+	}
+	set c0123456789abcdef_mac {
+		type iface_index . ether_addr
+		elements = { 11 . 02:42:0a:c9:fa:02,
+			     12 . 02:42:0a:c9:fb:02 }
+	}
+	set c0123456789abcdef_arp {
+		type iface_index . ether_addr . ipv4_addr
+		elements = { 11 . 02:42:0a:c9:fa:02 . 10.201.250.2,
+			     12 . 02:42:0a:c9:fb:02 . 10.201.251.2 }
+	}
+	set c0123456789abcdef_ip4 {
+		type iface_index . ipv4_addr
+		elements = { 11 . 10.201.250.2,
+			     12 . 10.201.251.2 }
+	}
+	set c0123456789abcdef_ip6 {
+		type iface_index . ipv6_addr
+		elements = { 11 . fd00:250::2 }
+	}
+	set c0123456789abcdef_nd {
+		type iface_index . ipv6_addr
+		elements = { 11 . fe80::42:aff:fec9:fa02,
+			     11 . fd00:250::2,
+			     12 . fe80::42:aff:fec9:fb02 }
+	}
+	set c0123456789abcdef_ndd {
+		type iface_index . ipv6_addr
+		flags interval
+		elements = { 11 . fe80::/10,
+			     11 . ff02::/16,
+			     11 . fd00:250::/64,
+			     12 . fe80::/10,
+			     12 . ff02::/16 }
+	}
+	set c0123456789abcdef_o4 {
+		type ipv4_addr
+		flags interval
+		elements = { 1.0.0.0-9.255.255.255,
+			     10.10.20.20,
+			     11.0.0.0-100.63.255.255,
+			     100.128.0.0-126.255.255.255,
+			     128.0.0.0-169.253.255.255,
+			     169.255.0.0-172.15.255.255,
+			     172.32.0.0-192.167.255.255,
+			     192.169.0.0-223.255.255.255 }
+	}
+	set c0123456789abcdef_o4p {
+		type ipv4_addr . inet_proto . inet_service
+		flags interval
+		elements = { 10.0.2.3 . tcp . 53,
+			     10.201.250.3 . tcp . 5432,
+			     10.0.2.3 . udp . 53,
+			     10.201.250.3 . udp . 5432 }
+	}
+	set c0123456789abcdef_o6 {
+		type ipv6_addr
+		flags interval
+		elements = { ::1:0:0-::fffe:ffff:ffff,
+			     ::1:0:0:0-64:ff9a:ffff:ffff:ffff:ffff:ffff:ffff,
+			     64:ff9b::1:0:0-64:ff9b:0:ffff:ffff:ffff:ffff:ffff,
+			     64:ff9b:2::-2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff,
+			     2003::-fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff,
+			     fe00::/9,
+			     fec0::/10 }
+	}
+	set c0123456789abcdef_o6p {
+		type ipv6_addr . inet_proto . inet_service
+		flags interval
+		elements = { fd00:250::3 . tcp . 5432,
+			     fd00:250::3 . udp . 5432 }
+	}
+	set c0123456789abcdef_o4i {
+		type ipv4_addr
+		flags interval
+		elements = { 10.20.0.0/16 }
+	}
+	set c0123456789abcdef_o6i {
+		type ipv6_addr
+		flags interval
+	}
+	set c0123456789abcdef_i4 {
+		type ipv4_addr
+		flags interval
+	}
+	set c0123456789abcdef_i4p {
+		type ipv4_addr . inet_proto . inet_service
+		flags interval
+		elements = { 10.0.2.15 . tcp . 80,
+			     10.201.250.1 . tcp . 80,
+			     10.201.250.3 . tcp . 8080,
+			     10.0.2.15 . udp . 80,
+			     10.201.250.1 . udp . 80 }
+	}
+	set c0123456789abcdef_i6 {
+		type ipv6_addr
+		flags interval
+	}
+	set c0123456789abcdef_i6p {
+		type ipv6_addr . inet_proto . inet_service
+		flags interval
+		elements = { fd00:250::1 . tcp . 80,
+			     fd00:250::3 . tcp . 8080,
+			     fd00:250::1 . udp . 80 }
+	}
+	set c0123456789abcdef_i4i {
+		type ipv4_addr
+		flags interval
+		elements = { 10.0.0.0-10.0.2.14,
+			     10.0.2.16-10.201.250.0,
+			     10.201.250.2-10.255.255.255,
+			     172.16.0.0/12,
+			     192.168.0.0/16 }
+	}
+	set c0123456789abcdef_i6i {
+		type ipv6_addr
+		flags interval
+		elements = { fc00::-fd00:250::,
+			     fd00:250::2-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff }
+	}
+	chain c0123456789abcdef_out {
+		ether type != { arp, ip, ip6 } drop
+		iif . ether saddr != @c0123456789abcdef_mac drop
+		ether type arp iif . arp saddr ether . arp saddr ip @c0123456789abcdef_arp accept
+		ether type arp drop
+		icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 iif . ip6 saddr @c0123456789abcdef_nd iif . ip6 daddr @c0123456789abcdef_ndd accept
+		icmpv6 type nd-neighbor-advert ip6 hoplimit 255 iif . ip6 saddr @c0123456789abcdef_nd iif . icmpv6 taddr @c0123456789abcdef_nd iif . ip6 daddr @c0123456789abcdef_ndd accept
+		ether type ip iif . ip saddr != @c0123456789abcdef_ip4 drop
+		ether type ip6 iif . ip6 saddr != @c0123456789abcdef_ip6 drop
+		ct mark & 0x40000000 != 0 drop
+		ct state established,related accept
+		ct state != new drop
+		ip daddr @c0123456789abcdef_o4 accept
+		ip daddr . meta l4proto . th dport @c0123456789abcdef_o4p accept
+		ip6 daddr @c0123456789abcdef_o6 accept
+		ip6 daddr . meta l4proto . th dport @c0123456789abcdef_o6p accept
+		meta l4proto icmp ip daddr @c0123456789abcdef_o4i accept
+		meta l4proto ipv6-icmp ip6 daddr @c0123456789abcdef_o6i accept
+		counter drop
+	}
+	chain c0123456789abcdef_in {
+		ether type != { arp, ip, ip6 } drop
+		ether type arp accept
+		icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept
+		ether type ip oif . ip daddr != @c0123456789abcdef_ip4 drop
+		ether type ip6 oif . ip6 daddr != @c0123456789abcdef_ip6 drop
+		ct mark & 0x40000000 != 0 drop
+		ct state established,related accept
+		ct state != new drop
+		ip saddr @c0123456789abcdef_i4 accept
+		ip saddr . meta l4proto . th dport @c0123456789abcdef_i4p accept
+		ip6 saddr @c0123456789abcdef_i6 accept
+		ip6 saddr . meta l4proto . th dport @c0123456789abcdef_i6p accept
+		meta l4proto icmp ip saddr @c0123456789abcdef_i4i accept
+		meta l4proto ipv6-icmp ip6 saddr @c0123456789abcdef_i6i accept
+		ct mark set ct mark | 0x40000000 counter drop
+	}
+	set cfedcba9876543210_mac {
+		type iface_index . ether_addr
+		elements = { 13 . 02:42:0a:c9:fa:02 }
+	}
+	set cfedcba9876543210_arp {
+		type iface_index . ether_addr . ipv4_addr
+		elements = { 13 . 02:42:0a:c9:fa:02 . 10.201.250.9 }
+	}
+	set cfedcba9876543210_ip4 {
+		type iface_index . ipv4_addr
+		elements = { 13 . 10.201.250.9 }
+	}
+	set cfedcba9876543210_ip6 {
+		type iface_index . ipv6_addr
+	}
+	set cfedcba9876543210_nd {
+		type iface_index . ipv6_addr
+		elements = { 13 . fe80::42:aff:fec9:fa02 }
+	}
+	set cfedcba9876543210_ndd {
+		type iface_index . ipv6_addr
+		flags interval
+		elements = { 13 . fe80::/10,
+			     13 . ff02::/16 }
+	}
+	set cfedcba9876543210_o4 {
+		type ipv4_addr
+		flags interval
+	}
+	set cfedcba9876543210_o4p {
+		type ipv4_addr . inet_proto . inet_service
+		flags interval
+	}
+	set cfedcba9876543210_o6 {
+		type ipv6_addr
+		flags interval
+	}
+	set cfedcba9876543210_o6p {
+		type ipv6_addr . inet_proto . inet_service
+		flags interval
+	}
+	set cfedcba9876543210_o4i {
+		type ipv4_addr
+		flags interval
+	}
+	set cfedcba9876543210_o6i {
+		type ipv6_addr
+		flags interval
+	}
+	set cfedcba9876543210_i4 {
+		type ipv4_addr
+		flags interval
+	}
+	set cfedcba9876543210_i4p {
+		type ipv4_addr . inet_proto . inet_service
+		flags interval
+	}
+	set cfedcba9876543210_i6 {
+		type ipv6_addr
+		flags interval
+	}
+	set cfedcba9876543210_i6p {
+		type ipv6_addr . inet_proto . inet_service
+		flags interval
+	}
+	set cfedcba9876543210_i4i {
+		type ipv4_addr
+		flags interval
+	}
+	set cfedcba9876543210_i6i {
+		type ipv6_addr
+		flags interval
+	}
+	chain cfedcba9876543210_out {
+		ether type != { arp, ip, ip6 } drop
+		iif . ether saddr != @cfedcba9876543210_mac drop
+		ether type arp iif . arp saddr ether . arp saddr ip @cfedcba9876543210_arp accept
+		ether type arp drop
+		icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 iif . ip6 saddr @cfedcba9876543210_nd iif . ip6 daddr @cfedcba9876543210_ndd accept
+		icmpv6 type nd-neighbor-advert ip6 hoplimit 255 iif . ip6 saddr @cfedcba9876543210_nd iif . icmpv6 taddr @cfedcba9876543210_nd iif . ip6 daddr @cfedcba9876543210_ndd accept
+		ether type ip iif . ip saddr != @cfedcba9876543210_ip4 drop
+		ether type ip6 iif . ip6 saddr != @cfedcba9876543210_ip6 drop
+		ct mark & 0x40000000 != 0 drop
+		ct state established,related accept
+		ct state != new drop
+		ip daddr @cfedcba9876543210_o4 accept
+		ip daddr . meta l4proto . th dport @cfedcba9876543210_o4p accept
+		ip6 daddr @cfedcba9876543210_o6 accept
+		ip6 daddr . meta l4proto . th dport @cfedcba9876543210_o6p accept
+		meta l4proto icmp ip daddr @cfedcba9876543210_o4i accept
+		meta l4proto ipv6-icmp ip6 daddr @cfedcba9876543210_o6i accept
+		counter drop
+	}
+	chain cfedcba9876543210_in {
+		ether type != { arp, ip, ip6 } drop
+		ether type arp accept
+		icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept
+		ether type ip oif . ip daddr != @cfedcba9876543210_ip4 drop
+		ether type ip6 oif . ip6 daddr != @cfedcba9876543210_ip6 drop
+		ct mark & 0x40000000 != 0 drop
+		ct state established,related accept
+		ct state != new drop
+		ip saddr @cfedcba9876543210_i4 accept
+		ip saddr . meta l4proto . th dport @cfedcba9876543210_i4p accept
+		ip6 saddr @cfedcba9876543210_i6 accept
+		ip6 saddr . meta l4proto . th dport @cfedcba9876543210_i6p accept
+		meta l4proto icmp ip saddr @cfedcba9876543210_i4i accept
+		meta l4proto ipv6-icmp ip6 saddr @cfedcba9876543210_i6i accept
+		ct mark set ct mark | 0x40000000 counter drop
+	}
+}

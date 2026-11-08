@@ -1,0 +1,41 @@
+[Unit]
+Description=dfw: keep container firewall rules in line with Docker
+Documentation=file:/usr/share/doc/dfw/README.md
+After=docker.service
+# Never stop restarting: while dfw run is down, new containers stay blocked.
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/sbin/dfw run
+ExecReload=/bin/kill -HUP $MAINPID
+StateDirectory=dfw
+Restart=always
+RestartSec=1s
+
+# dfw needs the Docker socket, netlink and CAP_NET_ADMIN, nothing else. It
+# finds veths through netlink namespace IDs, so it never enters a namespace.
+CapabilityBoundingSet=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

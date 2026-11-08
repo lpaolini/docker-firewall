@@ -1,0 +1,73 @@
+.TH DFW 8 "November 2026" "dfw 0.1.0" "System Administration"
+.SH NAME
+dfw \- firewall for the containers on chosen Docker networks
+.SH SYNOPSIS
+.B dfw
+.RB { plan " [" \fIFILE\fP "] | " apply | enable | disable | init " [" \-\-live "] | " run | active | version }
+.SH DESCRIPTION
+.B dfw
+filters the traffic of the containers on the Docker bridge networks named in
+the rules, in an nftables table
+.RB ( "bridge fw" )
+on the ports of their bridges. The rules file names the networks and
+lists the allowed connections; a container on them that no rule
+mentions has no network access. Other networks are left alone. See
+/usr/share/doc/dfw/README.md for the syntax.
+.SH COMMANDS
+.TP
+.BR plan " [" \fIFILE\fP ]
+Show the errors in the rules, what each running container on the filtered
+networks would get, and their ports with no container behind them. With
+.IR FILE ,
+read the rules from that file alone, to check it before installing it.
+Changes nothing. Exits 1 if the rules have errors.
+.TP
+.B apply
+Apply the edited rules to the running dfw and wait until it confirms. Refuses
+if the rules have errors, changing nothing. On a running system, editing the
+rules has no effect until
+.BR apply .
+.TP
+.B enable
+Cut over: load the base table and every container's rules in one transaction,
+cut the containers' tracked connections, write the docker.service drop-in and
+start dfw.service. Refuses if the rules have errors. If dfw is already
+running, the same as
+.BR apply .
+.TP
+.B disable
+Stop dfw.service, remove the drop-in and delete the table. This is the only
+command that opens containers.
+.TP
+.BR init " [" \-\-live ]
+Load the base table if it is missing or damaged; run by docker.service
+before Docker starts. With
+.BR \-\-live ,
+also load every running container's rules in the same transaction.
+.TP
+.B run
+Keep the table in line with the rules and Docker, and repair the table if
+anything else changes it; run by dfw.service. At start it applies the rules
+in /etc/dfw if they are valid, else the rules last applied; after that it
+reloads them only through
+.BR apply .
+.TP
+.B active
+Exit 0 if dfw is enabled or its table is loaded.
+.SH FILES
+.TP
+/etc/dfw/rules, /etc/dfw/rules.d/*.rules
+The rules. Read in that order, as one file.
+.TP
+/var/lib/dfw/rules.json
+The rules last applied.
+.TP
+/var/lib/dfw/open-bridges
+The bridges to leave open at boot, before Docker can be asked.
+.TP
+/etc/systemd/system/docker.service.d/dfw.conf
+Drop-in written by
+.BR "dfw enable" .
+.SH SEE ALSO
+.BR nft (8),
+.BR conntrack (8)

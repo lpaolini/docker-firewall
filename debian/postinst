@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+# Upgrade: restart dfw.service only if it is running. The table stays in the
+# kernel throughout, so no allowed connection is dropped.
+if [ "$1" = configure ] && [ -n "$2" ] && [ -d /run/systemd/system ]; then
+	deb-systemd-invoke try-restart dfw.service >/dev/null || true
+fi

@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/pkg-info.mk
+
+export GOCACHE := $(CURDIR)/debian/.gocache
+export GOPATH := $(CURDIR)/debian/.gopath
+export GOFLAGS := -mod=mod
+export GOTOOLCHAIN := local
+export CGO_ENABLED := 0
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) go build -trimpath \
+		-ldflags "-s -w -X main.version=$(DEB_VERSION)" -o build/dfw ./cmd/dfw
+
+override_dh_auto_test:
+ifeq ($(DEB_BUILD_ARCH),$(DEB_HOST_ARCH))
+	go test ./...
+endif
+
+override_dh_installsystemd:
+	# Installing must change no traffic: never enable or start on install,
+	# and on upgrade only restart a running dfw.service (see postinst).
+	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade
+
+# The Go linker already strips the binary (-s -w).
+override_dh_strip override_dh_dwz:
+
+execute_after_dh_install:
+	install -D -m 0644 debian/rules.conf debian/dfw/etc/dfw/rules
+
+override_dh_auto_clean:
+	rm -rf build debian/.gocache debian/.gopath

@@ -1,0 +1,21 @@
+Source: dfw
+Section: net
+Priority: optional
+Maintainer: dfw maintainers <lookap.dev@gmail.com>
+Build-Depends: debhelper-compat (= 13), golang-go (>= 2:1.24~)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: dfw
+Architecture: amd64 arm64
+Depends: nftables, conntrack, ${misc:Depends}
+Recommends: docker-ce | docker.io
+Description: firewall for the containers on chosen Docker networks
+ dfw filters the traffic of the containers on the Docker bridge networks you
+ name, in the kernel, on the ports of their bridges, with allow rules kept
+ in /etc/dfw/rules. A new container is blocked from its first packet until
+ its rules are in place, and a container no rule mentions has no network
+ access. Other networks are left alone.
+ .
+ Installing the package activates nothing. Write the rules, run "dfw plan"
+ to review them, then "dfw enable" to cut over.

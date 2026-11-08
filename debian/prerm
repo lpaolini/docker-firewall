@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# Removing dfw while it is active would leave the docker.service drop-in
+# pointing at a missing binary, or silently drop protection at the next boot.
+if [ "$1" = remove ] && command -v dfw >/dev/null && dfw active; then
+	echo "dfw is active. Run 'dfw disable' before removing the package." >&2
+	exit 1
+fi
+
+#DEBHELPER#

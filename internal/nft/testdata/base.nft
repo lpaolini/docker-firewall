@@ -1,0 +1,23 @@
+add table bridge fw
+delete table bridge fw
+table bridge fw {
+	set open_bridges {
+		type ifname
+	}
+	map out_by_port {
+		type iface_index : verdict
+	}
+	map in_by_port {
+		type iface_index : verdict
+	}
+	chain from_container {
+		type filter hook prerouting priority -150; policy accept;
+		iif vmap @out_by_port
+		iifname "veth*" meta ibrname != @open_bridges counter drop
+	}
+	chain to_container {
+		type filter hook postrouting priority -150; policy accept;
+		oif vmap @in_by_port
+		oifname "veth*" meta obrname != @open_bridges counter drop
+	}
+}
