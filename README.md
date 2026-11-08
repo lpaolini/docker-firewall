@@ -25,8 +25,8 @@ Add the signed APT repository and install the package:
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://lpaolini.github.io/docker-firewall/public.key | sudo gpg --dearmor -o /etc/apt/keyrings/dfw.gpg
-echo "deb [signed-by=/etc/apt/keyrings/dfw.gpg] https://lpaolini.github.io/docker-firewall stable main" | sudo tee /etc/apt/sources.list.d/dfw.list
+curl -fsSL https://lpaolini.github.io/apt/public.key | sudo gpg --dearmor -o /etc/apt/keyrings/lpaolini.gpg
+echo "deb [signed-by=/etc/apt/keyrings/lpaolini.gpg] https://lpaolini.github.io/apt stable main" | sudo tee /etc/apt/sources.list.d/lpaolini.list
 sudo apt update
 sudo apt install dfw
 ```

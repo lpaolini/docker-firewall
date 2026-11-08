@@ -4,16 +4,13 @@ name: build
 # and acceptance tests on every push and pull request.
 #   push to dev       -> rolling "dev" pre-release -> APT suite "dev"
 #   tag vX.Y.Z (main) -> GitHub release vX.Y.Z    -> APT suite "stable"
-#   manual run        -> rebuild the APT repository from the existing releases
-# The repository is always rebuilt from both channels, because every Pages
-# deployment replaces the whole site.
+# of the shared APT repository https://lpaolini.github.io/apt (lpaolini/apt).
 
 on:
   push:
     branches: ['**']
     tags: ['v*']
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -138,31 +135,25 @@ jobs:
         run: |
           sudo DFW_TEST_APPLY=1 "$(command -v go)" test ./internal/nft/
 
-  # Releasing and deploying run as one serialized job, so a newer dev push can
-  # never replace the dev release while an older run is still deploying it.
-  publish:
+  # Serialized, so a newer dev push can never replace the dev release while
+  # an older run is still creating it. The APT repository (lpaolini/apt) is
+  # rebuilt from the releases of all its projects.
+  release:
     needs: [package, integration]
-    if: needs.package.outputs.channel != 'none' || github.event_name == 'workflow_dispatch'
+    if: needs.package.outputs.channel != 'none'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pages: write
-      id-token: write
     concurrency:
-      group: publish
+      group: release
       cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       CHANNEL: ${{ needs.package.outputs.channel }}
       VERSION: ${{ needs.package.outputs.version }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        if: env.CHANNEL != 'none'
         with:
           name: packages
           path: dist
@@ -179,34 +170,7 @@ jobs:
           gh release create dev dist/* --prerelease --latest=false \
             --target "$GITHUB_SHA" --title "Development build $VERSION" \
             --notes "Automatic build of $GITHUB_SHA from the dev branch. Not for production use."
-      - name: Install repository tooling
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg
-      - name: Download released packages
-        run: |
-          suites=()
-          # Without a tag, gh picks the latest release, which is never the dev pre-release.
-          if gh release download --pattern '*.deb' --dir channels/stable; then
-            suites+=(stable=channels/stable)
-          fi
-          if gh release download dev --pattern '*.deb' --dir channels/dev; then
-            suites+=(dev=channels/dev)
-          fi
-          if [ ${#suites[@]} -eq 0 ]; then
-            echo "No stable or dev release to publish" >&2; exit 1
-          fi
-          echo "SUITES=${suites[*]}" >> "$GITHUB_ENV"
-      - name: Build APT repository
+      - name: Rebuild the APT repository
         env:
-          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
-          APT_SIGNING_PASSPHRASE: ${{ secrets.APT_SIGNING_PASSPHRASE }}
-          REQUIRE_APT_SIGNING: '1'
-        run: |
-          # shellcheck disable=SC2086  # SUITES is a list of SUITE=DIR words
-          packaging/build-repository.sh public \
-            "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}" $SUITES
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: public
-      - id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+          GH_TOKEN: ${{ secrets.APT_REPO_TOKEN }}
+        run: gh workflow run publish.yaml -R lpaolini/apt
