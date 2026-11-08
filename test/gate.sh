@@ -53,6 +53,7 @@ table bridge gate {
 EOF
 }
 
+nsx() { nsenter -t "$(docker inspect -f '{{.State.Pid}}' "$1")" -n "${@:2}"; }
 veth() { nsenter -t "$(docker inspect -f '{{.State.Pid}}' "$1")" -n ip -o link show eth0 | sed -n 's/.*@if\([0-9]*\).*/\1/p'; }
 ip4() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1"; }
 ip6() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").GlobalIPv6Address}}" "$1"; }
@@ -109,6 +110,10 @@ q1() {
 	local S4 S6 C4 C6 P4
 	S4=$(ip4 g-srv) S6=$(ip6 g-srv) C4=$(ip4 g-cli) C6=$(ip6 g-cli) P4=$(ip4 g-peer)
 	can g-cli "$S4" 8080 && fail "blocked before rules" || pass "g-cli -> g-srv blocked by base table alone"
+	# The blocked attempt left g-cli's ARP entry for g-srv unresolved, with
+	# probes still running: if they run out after the rules go in, the kernel
+	# fails the next connect with EHOSTUNREACH. Start the allowed checks clean.
+	nsx g-cli ip neigh flush all
 
 	rules g-cli "ip daddr $S4 tcp dport 8080 ct state new accept
 ip6 daddr $S6 tcp dport 8080 ct state new accept

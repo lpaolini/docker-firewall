@@ -104,6 +104,28 @@ jobs:
           path: dist
       - name: Install test tools
         run: sudo apt-get update && sudo apt-get install -y nftables conntrack tcpdump jq socat
+      # GitHub's runners drop outbound ICMP, and the tests ping 1.1.1.1 and
+      # 1.0.0.1. Route both to a namespace that answers ping and HTTP, so the
+      # containers reach them through Docker's NAT like real internet hosts.
+      - name: Stand in for the internet test hosts
+        run: |
+          sudo ip netns add ext
+          sudo ip link add ext0 type veth peer name ext1 netns ext
+          sudo ip addr add 192.0.2.1/30 dev ext0
+          sudo ip link set ext0 up
+          sudo ip -n ext addr add 192.0.2.2/30 dev ext1
+          sudo ip -n ext addr add 1.1.1.1/32 dev lo
+          sudo ip -n ext addr add 1.0.0.1/32 dev lo
+          sudo ip -n ext link set lo up
+          sudo ip -n ext link set ext1 up
+          sudo ip -n ext route add default via 192.0.2.1
+          sudo ip route add 1.1.1.1/32 via 192.0.2.2
+          sudo ip route add 1.0.0.1/32 via 192.0.2.2
+          mkdir -p "$RUNNER_TEMP/www"
+          sudo setsid nohup ip netns exec ext python3 -m http.server 80 \
+            --directory "$RUNNER_TEMP/www" >"$RUNNER_TEMP/http.log" 2>&1 < /dev/null &
+          sleep 1
+          ping -c1 -W3 1.1.1.1 && curl -sf -m5 -o /dev/null http://1.0.0.1/
       - name: Build the test image
         run: printf 'FROM alpine:3.22\nRUN apk add --no-cache socat curl bind-tools tcpdump iproute2\n' | docker build -q -t dfw-tools -
       - name: Gate test
