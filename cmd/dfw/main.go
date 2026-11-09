@@ -50,13 +50,6 @@ const usage = `usage: dfw <command>
   disable          stop dfw.service, remove the drop-in, delete the table.
                    This opens every container
   version          print the version
-
-Run by systemd and the package, not by hand:
-
-  init             load the base table if missing (before docker.service starts)
-  run              keep the table in line with the rules and Docker (dfw.service).
-                   Applies /etc/dfw's rules at start, if valid
-  active           exit 0 if the firewall is enabled or its table is loaded
 `
 
 func logf(format string, a ...any) { log.Printf(format, a...) }
