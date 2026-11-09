@@ -14,7 +14,8 @@ use are in the [README](../README.md).
   stay blocked, and others keep the rules they had.
 - A rule that can't be parsed or resolved never widens access.
 - Editing the rules files changes nothing until the administrator runs
-  `dfw apply`.
+  `dfw apply`, or `dfw run` restarts. Either way, connections the new rules
+  don't allow are cut.
 - IPv4 and IPv6 are both covered.
 - Networks not named by a `network` line are left as Docker made them.
 
@@ -94,10 +95,10 @@ those in `open_bridges`, the bridges dfw knows are not filtered.
 While `dfw run` is up, a new bridge named the way Docker names a network's
 bridge by default (`br-` and 12 hex digits) stays blocked until Docker lists
 its network, since Docker creates the bridge first. A bridge with any other
-name is opened as soon as dfw sees it and Docker doesn't list it as a filtered
-network's. So a filtered network with a custom
-`com.docker.network.bridge.name` is briefly open while it is being created,
-before any container is attached to it.
+name may also be a filtered network's (with a custom
+`com.docker.network.bridge.name`), so it is opened only once it has stayed
+unlisted for a second, about two seconds after it appears. Bridges already
+open when `dfw run` starts stay open.
 
 `dfw run` updates the set as bridges and networks come and go, and saves it
 in `/var/lib/dfw/open-bridges` with the `network` lines it was made for. At
@@ -114,9 +115,11 @@ on filtered networks at them (one veth per network, same chains).
 
 1. Drop anything but ARP, IPv4 and IPv6, and frames whose source MAC, IP or
    ARP sender isn't the container's own on that port.
-2. Accept the container's own ARP. Accept IPv6 neighbour discovery only from
-   its own addresses, with hop limit 255, to link-local, link-local multicast
-   (`ff02::/16`) or on-link destinations, so it can't carry data.
+2. Accept the container's own ARP, at most its plain size. Accept IPv6
+   neighbour discovery only from its own addresses, with hop limit 255, at
+   most 32 bytes (one link-layer address option), to link-local, link-local
+   multicast (`ff02::/16`) or on-link destinations. So neither is routed or
+   carries a payload.
 3. Drop connections marked as refused (below).
 4. Accept `ct state established,related`; drop anything else that isn't
    `new`.
@@ -137,7 +140,9 @@ protocol, address · protocol · port for port rules, and addresses for
 conntrack before the bridge drops it, so a compromised container could
 otherwise answer a refused SYN and have the flow count as established. dfw
 sets bit `0x40000000` of the conntrack mark on connections a container's
-inbound chain refuses, and drops marked connections both ways.
+inbound chain refuses, and drops marked connections both ways. Each time
+the table changes, it deletes the marked connections, so ones the new rules
+allow can start at once; the rest are refused and marked again.
 
 ## Resolving rules
 
@@ -218,6 +223,12 @@ systemd's other sandboxing options.
 - When `dfw run` starts, it makes the files the active rules if they are
   valid; otherwise it logs the errors and keeps the active ones. A typo saved
   before a reboot changes nothing.
+- Its first apply compares each container's sets with the table it started
+  with. A container whose sets lost anything (edited rules, a peer renamed or
+  readdressed while `dfw run` was down) has all its connections cut, and
+  allowed ones reconnect. If the rules in force were never confirmed (an
+  earlier `dfw run` or `dfw enable` stopped before its cuts were done), every
+  container's are, as `dfw enable` does.
 
 ## Enabling and disabling
 

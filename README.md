@@ -120,9 +120,11 @@ comma-separated list. The destination may end in `:port`, `:port/tcp`,
   once dfw confirms both, or fails after 30 seconds (see `journalctl -u dfw`).
   No container is recreated. `dfw plan` says when the files differ from the
   applied rules.
-- **At start, `dfw.service` applies the files if they are valid.** Otherwise
-  it logs the errors and keeps the last applied rules, saved in
-  `/var/lib/dfw/rules.json`.
+- **At start, `dfw.service` applies the files if they are valid**, and cuts
+  the connections of containers that lost a permission, by edited rules or
+  by Docker changes made while it was down, so only allowed ones resume.
+  Otherwise it logs the errors and keeps the last applied rules,
+  saved in `/var/lib/dfw/rules.json`.
 - The EC2 metadata service is link-local, so it needs its own rule:
   `allow [foo] -> 169.254.169.254:80/tcp`.
 

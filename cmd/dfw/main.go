@@ -181,7 +181,7 @@ func baseIntact(st *nft.State) bool {
 // transaction, then cuts all tracked connections of the filtered containers
 // so that only allowed ones come back.
 func initLive() error {
-	cfg, _, err := loadActive()
+	cfg, hash, err := loadActive()
 	if err != nil {
 		return err
 	}
@@ -195,6 +195,11 @@ func initLive() error {
 		return fmt.Errorf("can't read Docker, nothing was changed: %w", err)
 	}
 	rs := w.ruleset()
+	// Until every connection is cut below, dfw run must not count the rules
+	// as confirmed.
+	if err := os.Remove(appliedFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := nft.Apply(nft.Render(rs)); err != nil {
 		return err
 	}
@@ -215,6 +220,10 @@ func initLive() error {
 	}
 	if failed > 0 {
 		return fmt.Errorf("rules are loaded, but connections of %d addresses could not be cut, so forbidden ones may survive; run it again", failed)
+	}
+	// Every connection was cut under these rules, so dfw run needn't again.
+	if err := writeAtomic(appliedFile, []byte(hash+"\n")); err != nil {
+		return err
 	}
 	logf("loaded rules for %d containers on networks %s and cut their existing connections", len(rs.Containers), strings.Join(cfg.Networks, ", "))
 	return nil
@@ -378,6 +387,11 @@ func cmdApply() error {
 	}
 	if sameAsActive(files) {
 		logf("the rules are already the active ones; reapplying")
+	}
+	// dfw run writes it again once these rules are in force; an old copy
+	// must not count as that.
+	if err := os.Remove(appliedFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	hash, err := saveActive(files)
 	if err != nil {

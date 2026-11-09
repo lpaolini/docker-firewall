@@ -152,10 +152,10 @@ table bridge fw {
 	chain c0123456789abcdef_out {
 		ether type != { arp, ip, ip6 } drop
 		iif . ether saddr != @c0123456789abcdef_mac drop
-		ether type arp iif . arp saddr ether . arp saddr ip @c0123456789abcdef_arp accept
+		ether type arp meta length <= 46 iif . arp saddr ether . arp saddr ip @c0123456789abcdef_arp accept
 		ether type arp drop
-		icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 iif . ip6 saddr @c0123456789abcdef_nd iif . ip6 daddr @c0123456789abcdef_ndd accept
-		icmpv6 type nd-neighbor-advert ip6 hoplimit 255 iif . ip6 saddr @c0123456789abcdef_nd iif . icmpv6 taddr @c0123456789abcdef_nd iif . ip6 daddr @c0123456789abcdef_ndd accept
+		icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 ip6 length <= 32 iif . ip6 saddr @c0123456789abcdef_nd iif . ip6 daddr @c0123456789abcdef_ndd accept
+		icmpv6 type nd-neighbor-advert ip6 hoplimit 255 ip6 length <= 32 iif . ip6 saddr @c0123456789abcdef_nd iif . icmpv6 taddr @c0123456789abcdef_nd iif . ip6 daddr @c0123456789abcdef_ndd accept
 		ether type ip iif . ip saddr != @c0123456789abcdef_ip4 drop
 		ether type ip6 iif . ip6 saddr != @c0123456789abcdef_ip6 drop
 		ct mark & 0x40000000 != 0 drop
@@ -262,10 +262,10 @@ table bridge fw {
 	chain cfedcba9876543210_out {
 		ether type != { arp, ip, ip6 } drop
 		iif . ether saddr != @cfedcba9876543210_mac drop
-		ether type arp iif . arp saddr ether . arp saddr ip @cfedcba9876543210_arp accept
+		ether type arp meta length <= 46 iif . arp saddr ether . arp saddr ip @cfedcba9876543210_arp accept
 		ether type arp drop
-		icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 iif . ip6 saddr @cfedcba9876543210_nd iif . ip6 daddr @cfedcba9876543210_ndd accept
-		icmpv6 type nd-neighbor-advert ip6 hoplimit 255 iif . ip6 saddr @cfedcba9876543210_nd iif . icmpv6 taddr @cfedcba9876543210_nd iif . ip6 daddr @cfedcba9876543210_ndd accept
+		icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 ip6 length <= 32 iif . ip6 saddr @cfedcba9876543210_nd iif . ip6 daddr @cfedcba9876543210_ndd accept
+		icmpv6 type nd-neighbor-advert ip6 hoplimit 255 ip6 length <= 32 iif . ip6 saddr @cfedcba9876543210_nd iif . icmpv6 taddr @cfedcba9876543210_nd iif . ip6 daddr @cfedcba9876543210_ndd accept
 		ether type ip iif . ip saddr != @cfedcba9876543210_ip4 drop
 		ether type ip6 iif . ip6 saddr != @cfedcba9876543210_ip6 drop
 		ct mark & 0x40000000 != 0 drop

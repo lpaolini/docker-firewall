@@ -85,7 +85,7 @@ serve() { # serve NAME [docker run args...]
 
 cleanup() {
 	docker compose -p $P -f "$DIR/compose.yaml" down -t 0 >/dev/null 2>&1
-	docker rm -f ic1 ic2 internet pub pubok kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 >/dev/null 2>&1
+	docker rm -f ic1 ic2 internet pub pubok kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 >/dev/null 2>&1
 	docker network rm $NET $TWO $FREE acc_new >/dev/null 2>&1
 	rm -rf "$DIR" "$RULESD"
 }
@@ -252,6 +252,39 @@ yes_ "a -> b:5432 still allowed" tcp $A "$(ip4 $B)" 5432
 echo "$MAIN" | write_rules $RULES
 no_ "n -> $EXT once its rule is gone and applied" pings $N "$EXT"
 
+say "a restart that applies edited rules cuts what they no longer allow"
+docker exec -d $A sh -c "while sleep 0.2; do echo tick; done | socat - TCP:$(ip4 $B):5432 >/tmp/rst 2>&1"
+sleep 2
+systemctl stop dfw
+echo "$MAIN" | grep -vF '[a] -> [b]' | save_rules $RULES
+systemctl start dfw
+sleep 3
+C1=$(docker exec $A grep -c tick /tmp/rst 2>/dev/null); sleep 2; C2=$(docker exec $A grep -c tick /tmp/rst 2>/dev/null)
+no_ "the long-lived a -> b connection kept flowing after a restart removed its rule ($C1 -> $C2 lines)" sh -c "docker exec $A pgrep -f 'socat - TCP:$(ip4 $B)' >/dev/null && [ '$C2' -gt '$C1' ]"
+docker exec $A pkill -f "socat - TCP:$(ip4 $B)" 2>/dev/null
+echo "$MAIN" | write_rules $RULES
+
+say "a peer renamed while dfw run is down loses its connections at start"
+serve rn1; serve rn2
+{ echo "$MAIN"; echo "allow [rn1] -> [rn2]:5432"; } | write_rules $RULES
+docker exec -d rn1 sh -c "while sleep 0.2; do echo tick; done | socat - TCP:$(ip4 rn2):5432 >/tmp/rn 2>&1"
+sleep 2
+systemctl stop dfw
+docker rename rn2 rn3
+systemctl start dfw
+sleep 3
+C1=$(docker exec rn1 grep -c tick /tmp/rn 2>/dev/null); sleep 2; C2=$(docker exec rn1 grep -c tick /tmp/rn 2>/dev/null)
+no_ "rn1 -> rn2 kept flowing once rn2 was renamed ($C1 -> $C2 lines)" sh -c "[ '$C2' -gt '$C1' ]"
+docker rm -f rn1 rn3 >/dev/null
+echo "$MAIN" | write_rules $RULES
+
+say "a new bridge that Docker doesn't list is blocked at first"
+ip link add dfwtest0 type bridge
+sleep 0.3
+no_ "dfwtest0 is open at once" sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
+yes_ "dfwtest0 is open once it stays unlisted" eventually sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
+ip link del dfwtest0
+
 say "one network: other networks are left alone"
 yes_ "f, on $FREE with no rules, reaches the internet" web $F "$EXT2"
 yes_ "a container on the default bridge reaches the internet" docker run --rm "$IMG" curl -s -m5 -o /dev/null "http://$EXT/"
@@ -303,6 +336,10 @@ HOSTIP=$(ip -4 route get "$EXT" | sed -n 's/.* src \([0-9.]*\).*/\1/p')
 yes_ "host -> pubok's published port (allow host -> [pubok]:80/tcp)" sh -c "[ \"\$(socat -T3 - TCP:$HOSTIP:18182,connect-timeout=3 </dev/null 2>/dev/null)\" = hi ]"
 no_ "host -> pub's published port (no rule)" sh -c "[ \"\$(socat -T3 - TCP:$HOSTIP:18181,connect-timeout=3 </dev/null 2>/dev/null)\" = hi ]"
 yes_ "the refused connection is marked, so no reply can make it established" sh -c "conntrack -L -p tcp -d $HOSTIP --dport 18181 2>/dev/null | grep -q 'mark=1073741824'"
+{ echo "$MAIN"; echo "allow host -> [pub]:80/tcp"; } | write_rules $RULES
+yes_ "an apply deletes refused connections, so ones it allows can start" sh -c "! conntrack -L -p tcp -d $HOSTIP --dport 18181 2>/dev/null | grep -q 'mark=1073741824'"
+yes_ "host -> pub's published port once a rule allows it" sh -c "[ \"\$(socat -T3 - TCP:$HOSTIP:18181,connect-timeout=3 </dev/null 2>/dev/null)\" = hi ]"
+echo "$MAIN" | write_rules $RULES
 docker rm -f pub pubok >/dev/null
 
 say "dns: upstream DNS is opt-in"

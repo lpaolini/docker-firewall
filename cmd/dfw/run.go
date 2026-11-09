@@ -24,14 +24,20 @@ const (
 	reconcileEvery = 30 * time.Second
 	restoreGap     = time.Second // minimum time between repeated repairs
 	retryAfter     = 2 * time.Second
+	// How long a bridge Docker doesn't list stays blocked before it is
+	// opened: Docker lists a network moments after creating its bridge.
+	unlistedWait = time.Second
 )
 
 type runner struct {
 	dc      *docker.Client
 	cfg     *rules.Config            // rules in use; nil until the active rules were read
 	cfgHash string                   // hash of the active rules in cfg
-	marked  string                   // hash last written to appliedFile
 	applied map[string]nft.Container // by container ID
+	cutAll  bool                     // cut every container's connections after the next apply
+	prev    *nft.State               // the table dfw run started with, until the first apply
+	opened  map[string]time.Time     // unlisted bridges: when first seen
+	unmark  bool                     // refused connections still need deleting
 	rs      nft.Ruleset              // as last applied
 	text    string                   // ruleset text last applied
 	fp      string                   // rule fingerprint after the last apply
@@ -44,6 +50,12 @@ type runner struct {
 }
 
 func cmdRun() error {
+	// If the active rules were never confirmed (an earlier dfw run or dfw
+	// enable stopped before its cuts were done), the table may allow
+	// connections they don't: cut them all once the rules are in, and allowed
+	// ones reconnect.
+	_, hash, err := loadActive()
+	cutAll := err != nil || readApplied() != hash
 	// At start, the rules being edited are applied if they are valid. After
 	// that, only dfw apply changes them.
 	if errs := refreshActive(); len(errs) > 0 {
@@ -54,10 +66,13 @@ func cmdRun() error {
 	}
 	dc := docker.New(dockerSock)
 	r := &runner{dc: dc, applied: map[string]nft.Container{}, known: map[int]bool{},
-		logged: map[string]bool{}, strays: map[int]time.Time{}, pending: map[netip.Addr]bool{}}
+		logged: map[string]bool{}, strays: map[int]time.Time{}, pending: map[netip.Addr]bool{},
+		cutAll: cutAll, opened: map[string]time.Time{}}
 
 	// Veths already in the table were filtered by an earlier dfw run, so their
-	// connections are legitimate. Any other veth is new to the rules.
+	// connections were allowed by the table then; the first apply cuts those
+	// of containers whose sets lost anything since (edited rules, a renamed
+	// peer, a changed address). Any other veth is new to the rules.
 	links, err := netlink.Links(-1)
 	if err != nil {
 		return err
@@ -72,6 +87,10 @@ func cmdRun() error {
 	case err != nil:
 		return err
 	default:
+		r.prev = st
+		for _, e := range st.Sets["open_bridges"] {
+			r.opened[strings.Trim(e, `"`)] = time.Time{} // open already
+		}
 		for _, e := range st.Sets["out_by_port"] {
 			if f := strings.Fields(e); len(f) == 4 && f[2] == "jump" {
 				if i, err := strconv.Atoi(f[0]); err == nil {
@@ -117,7 +136,8 @@ func cmdRun() error {
 
 	var events chan docker.Event
 	tick := time.NewTicker(reconcileEvery)
-	retry := time.NewTimer(0)
+	retry := time.NewTimer(retryAfter)
+	retry.Stop()
 	var recheck <-chan time.Time
 	for {
 		if events == nil {
@@ -167,7 +187,9 @@ func cmdRun() error {
 			recheck = nil
 			r.check()
 		case <-tick.C:
-			r.reconcile()
+			if r.reconcile() {
+				retry.Reset(retryAfter)
+			}
 			r.check()
 		case <-retry.C:
 			if events != nil && r.reconcile() {
@@ -198,18 +220,18 @@ func (r *runner) config() *rules.Config {
 
 // markApplied tells dfw apply that the active rules are in force: in the
 // table, with every connection that lost its permission cut.
+// It rewrites the file whenever it differs, since dfw apply deletes it.
 func (r *runner) markApplied() {
-	if len(r.pending) > 0 {
+	if r.busy() || r.cfgHash == "" {
 		return
 	}
-	if r.cfgHash != "" && r.cfgHash != r.marked {
-		if err := writeAtomic(appliedFile, []byte(r.cfgHash+"\n")); err != nil {
-			logf("warning: can't record that the rules are applied: %v", err)
-			return
-		}
-		r.marked = r.cfgHash
+	if err := writeAtomic(appliedFile, []byte(r.cfgHash+"\n")); err != nil {
+		logf("warning: can't record that the rules are applied: %v", err)
 	}
 }
+
+// busy reports whether connections still need cutting.
+func (r *runner) busy() bool { return len(r.pending) > 0 || r.unmark }
 
 // reconcile brings the table in line with the rules and Docker. It returns
 // true when something failed that should be retried soon.
@@ -218,6 +240,9 @@ func (r *runner) reconcile() (retry bool) {
 		if err := cutAddr(a); err == nil {
 			delete(r.pending, a)
 		}
+	}
+	if r.unmark {
+		r.unmark = cutRefused() != nil
 	}
 	cfg := r.config()
 	if cfg == nil {
@@ -230,6 +255,9 @@ func (r *runner) reconcile() (retry bool) {
 		return true
 	}
 	r.report(w)
+	if r.holdUnlisted(w) {
+		retry = true
+	}
 	rs := w.ruleset()
 	// A veth new to the rules may have an IP whose old connections are still
 	// tracked. Cut them while it is still blocked, so none can be reused; if
@@ -257,7 +285,7 @@ func (r *runner) reconcile() (retry bool) {
 	text := nft.Render(rs)
 	if text == r.text && r.ok {
 		r.markApplied()
-		return retry || len(r.pending) > 0
+		return retry || r.busy()
 	}
 	start := time.Now()
 	if err := r.apply(text, rs); err != nil {
@@ -285,9 +313,60 @@ func (r *runner) reconcile() (retry bool) {
 			}
 		}
 	}
+	for _, c := range next {
+		if r.cutAll || r.prev != nil && lostSince(r.prev, c) {
+			for _, a := range portAddrs(c) {
+				r.cut(a)
+			}
+		}
+	}
+	r.cutAll, r.prev = false, nil
+	// A refused connection stays marked, and dropped, for as long as it is
+	// tracked. Delete those, so that ones the new table allows can start; the
+	// others are refused and marked again.
+	r.unmark = cutRefused() != nil
 	r.applied = next
 	r.markApplied()
-	return retry || len(r.pending) > 0
+	return retry || r.busy()
+}
+
+// lostSince reports whether c's sets in the table prev lack anything they
+// held there. An element is a whole range, so a range merely widened counts
+// as lost too, which only cuts more than needed.
+func lostSince(prev *nft.State, c nft.Container) bool {
+	k := nft.Key(c.ID) + "_"
+	for name, els := range nft.Intended(nft.Ruleset{Containers: []nft.Container{c}}).Sets {
+		if !strings.HasPrefix(name, k) {
+			continue
+		}
+		for _, e := range prev.Sets[name] {
+			if !slices.Contains(els, e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// holdUnlisted keeps blocked, for unlistedWait, the bridges Docker doesn't
+// list that were not seen before: one may be a filtered network's (with a
+// custom bridge.name) that Docker hasn't listed yet. It reports whether any
+// is held, so that a reconcile follows.
+func (r *runner) holdUnlisted(w *world) (held bool) {
+	seen := map[string]time.Time{}
+	for _, b := range w.unlisted {
+		first, ok := r.opened[b]
+		if !ok {
+			first = time.Now()
+		}
+		seen[b] = first
+		if time.Since(first) < unlistedWait {
+			w.open = slices.DeleteFunc(w.open, func(o string) bool { return o == b })
+			held = true
+		}
+	}
+	r.opened = seen
+	return held
 }
 
 // apply loads text and confirms the kernel holds what was intended.

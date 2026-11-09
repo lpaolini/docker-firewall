@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,6 +58,20 @@ func cutPair(a, b netip.Addr) error {
 	return first
 }
 
+// cutRefused deletes every connection marked as refused (nft.Denied).
+func cutRefused() error {
+	var first error
+	for _, a := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+		if err := ctDelete(a, "--mark", nft.Denied+"/"+nft.Denied); err != nil && first == nil {
+			first = err
+		}
+	}
+	if first != nil {
+		logf("error: %v; will retry", first)
+	}
+	return first
+}
+
 // cut deletes a's connections, and retries later if that fails.
 func (r *runner) cut(a netip.Addr) {
 	if err := cutAddr(a); err != nil {
@@ -87,10 +102,14 @@ func (r *runner) cutRevoked(old, new nft.Container) {
 		return
 	}
 	own := portAddrs(new)
-	all := false
+	// Only addresses of a family the container has can be its peers.
+	lost = slices.DeleteFunc(lost, func(x rules.Range) bool {
+		return !slices.ContainsFunc(own, func(a netip.Addr) bool { return a.Is4() == x.Is4() })
+	})
+	all := slices.ContainsFunc(lost, func(x rules.Range) bool { return x.Lo != x.Hi })
 	for _, x := range lost {
 		for _, a := range own {
-			if x.Lo != x.Hi || (a.Is4() == x.Lo.Is4() && cutPair(a, x.Lo) != nil) {
+			if !all && a.Is4() == x.Is4() && cutPair(a, x.Lo) != nil {
 				all = true
 			}
 		}

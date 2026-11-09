@@ -39,6 +39,7 @@ type world struct {
 	cfg       rules.Config
 	bridges   map[string]string // filtered network -> its bridge device, for those that exist
 	open      []string
+	unlisted  []string // bridges in open that Docker doesn't list
 	ctrs      []*ctr
 	hostAddrs []netip.Addr
 	links     []netlink.Link
@@ -135,11 +136,14 @@ func (w *world) classify(nets []docker.Network) (fwIndex map[int]bool, drivers m
 		case !listed[l.Name] && dockerBridge(l.Name):
 			// Docker creates a network's bridge before it lists the network,
 			// which may be a filtered one: keep it blocked until it is listed.
-			// shortcut: a filtered network with a custom bridge.name is still
-			// opened in that moment; if needed, open unlisted bridges only once
-			// a second reconcile still sees them unlisted.
 		case nft.ValidIfname(l.Name):
+			// Any other unlisted bridge may also be a filtered network's (with
+			// a custom bridge.name) being created: dfw run opens it only once
+			// it stays unlisted (runner.holdUnlisted).
 			w.open = append(w.open, l.Name)
+			if !listed[l.Name] {
+				w.unlisted = append(w.unlisted, l.Name)
+			}
 		default:
 			w.problems = append(w.problems, fmt.Sprintf("bridge %q has a name dfw can't write into rules, so its veths stay blocked", l.Name))
 		}

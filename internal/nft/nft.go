@@ -153,13 +153,16 @@ func strs(rs []rules.Range, suffix string) []string {
 // chains returns a container's two chains (docs/how-it-works.md).
 func chains(c Container) (out, in []string) {
 	k := Key(c.ID)
+	// ARP and neighbour discovery pass without rules, so they are held to
+	// their plain size and can't carry data: ARP to its 28 bytes (46 with
+	// padding), ND to 24 bytes and one 8-byte link-layer address option.
 	out = []string{
 		"ether type != { arp, ip, ip6 } drop",
 		"iif . ether saddr != @" + k + "_mac drop",
-		"ether type arp iif . arp saddr ether . arp saddr ip @" + k + "_arp accept",
+		"ether type arp meta length <= 46 iif . arp saddr ether . arp saddr ip @" + k + "_arp accept",
 		"ether type arp drop",
-		"icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 iif . ip6 saddr @" + k + "_nd iif . ip6 daddr @" + k + "_ndd accept",
-		"icmpv6 type nd-neighbor-advert ip6 hoplimit 255 iif . ip6 saddr @" + k + "_nd iif . icmpv6 taddr @" + k + "_nd iif . ip6 daddr @" + k + "_ndd accept",
+		"icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 ip6 length <= 32 iif . ip6 saddr @" + k + "_nd iif . ip6 daddr @" + k + "_ndd accept",
+		"icmpv6 type nd-neighbor-advert ip6 hoplimit 255 ip6 length <= 32 iif . ip6 saddr @" + k + "_nd iif . icmpv6 taddr @" + k + "_nd iif . ip6 daddr @" + k + "_ndd accept",
 		"ether type ip iif . ip saddr != @" + k + "_ip4 drop",
 		"ether type ip6 iif . ip6 saddr != @" + k + "_ip6 drop",
 		"ct mark & " + Denied + " != 0 drop",
