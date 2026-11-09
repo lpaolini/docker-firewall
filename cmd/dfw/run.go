@@ -222,7 +222,7 @@ func (r *runner) config() *rules.Config {
 // It rewrites the file whenever it differs, since it is deleted before each
 // change to the table.
 func (r *runner) markApplied() {
-	if r.busy() || r.cfgHash == "" {
+	if r.busy() || r.cfgHash == "" || !r.ok {
 		return
 	}
 	if err := writeAtomic(appliedFile, []byte(r.cfgHash+"\n")); err != nil {
@@ -293,11 +293,17 @@ func (r *runner) reconcile() (retry bool) {
 		return true
 	}
 	start := time.Now()
-	if err := r.apply(text, rs); err != nil {
+	switch loaded, err := r.apply(text, rs); {
+	case !loaded:
 		logf("error: applying rules failed; the previous rules stay in force, and new containers stay blocked, until the next try: %v", err)
 		return true
+	case err != nil:
+		// The new table is in force, so its revocations are cut below.
+		logf("error: the rules were loaded, but the table doesn't read back as intended; retrying: %v", err)
+		retry = true
+	default:
+		logf("rules applied for %d containers on networks %s in %v", len(rs.Containers), strings.Join(cfg.Networks, ", "), time.Since(start).Round(time.Millisecond))
 	}
-	logf("rules applied for %d containers on networks %s in %v", len(rs.Containers), strings.Join(cfg.Networks, ", "), time.Since(start).Round(time.Millisecond))
 	if err := saveOpen(cfg.Networks, rs.Open); err != nil {
 		logf("warning: can't record the open bridges for the next boot: %v", err)
 	}
@@ -353,20 +359,21 @@ func lostSince(prev *nft.State, c nft.Container) bool {
 	return false
 }
 
-// apply loads text and confirms the kernel holds what was intended.
-func (r *runner) apply(text string, rs nft.Ruleset) error {
+// apply loads text and confirms the kernel holds what was intended. loaded
+// reports whether the table was replaced, even if the check then failed.
+func (r *runner) apply(text string, rs nft.Ruleset) (loaded bool, err error) {
 	r.ok = false
 	r.lastFix = time.Now()
 	if err := nft.Apply(text); err != nil {
-		return err
+		return false, err
 	}
 	r.text, r.rs = text, rs
 	st, err := verify(rs)
 	if err != nil {
-		return err
+		return true, err
 	}
 	r.fp, r.ok = st.Rules, true
-	return nil
+	return true, nil
 }
 
 // check repairs the table if anything but dfw changed it.
@@ -383,7 +390,7 @@ func (r *runner) check() {
 		// No rules computed yet (no rules or Docker unreachable).
 		logf("warning: the table was deleted; restoring it with every container blocked until dfw can compute the rules")
 		boot := bootRuleset()
-		if err := r.apply(nft.Render(boot), boot); err != nil {
+		if _, err := r.apply(nft.Render(boot), boot); err != nil {
 			logf("error: restoring the table failed: %v", err)
 		}
 		r.text = "" // still nothing computed
@@ -406,7 +413,7 @@ func (r *runner) check() {
 		return
 	}
 	logf("warning: table changed outside dfw (%s); restoring it", why)
-	if err := r.apply(r.text, r.rs); err != nil {
+	if _, err := r.apply(r.text, r.rs); err != nil {
 		logf("error: restoring the table failed: %v", err)
 	}
 }

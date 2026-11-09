@@ -265,6 +265,13 @@ func cmdPlan(file string) (int, []rules.File, error) {
 			fmt.Printf("warning: network %s doesn't exist; its containers will be filtered once it does\n", n)
 		}
 	}
+	// As dfw enable would judge them; a running dfw keeps open those it
+	// already opened.
+	w.holdUnlisted(nil)
+	for _, b := range w.held {
+		fmt.Printf("warning: bridge %s, which Docker doesn't list, is blocked until every filtered network exists, since it may be one's\n", b)
+	}
+
 	model := map[string]nft.Container{}
 	for _, c := range w.ruleset().Containers {
 		model[c.ID] = c

@@ -137,8 +137,8 @@ no rule mentions, so review first:
 2. Write `/etc/dfw/rules` (the installed file has commented examples). Check
    a draft with `sudo dfw plan FILE`.
 3. Run `sudo dfw plan`. It lists rule errors, each container with its rules,
-   names that match no container, and containers also on unfiltered
-   networks.
+   names that match no container, containers also on unfiltered networks,
+   and bridges it will block because a filtered network doesn't exist yet.
 4. Run `sudo dfw enable`. It refuses rules with errors. Otherwise it loads
    the table with every container's rules in one transaction, cuts tracked
    connections so only allowed ones resume (a brief interruption), installs a

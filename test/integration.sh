@@ -84,8 +84,9 @@ serve() { # serve NAME [docker run args...]
 }
 
 cleanup() {
+	chmod +x /usr/sbin/conntrack
 	docker compose -p $P -f "$DIR/compose.yaml" down -t 0 >/dev/null 2>&1
-	docker rm -f ic1 ic2 internet pub pubok kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 >/dev/null 2>&1
+	docker rm -f ic1 ic2 internet pub pubok kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 >/dev/null 2>&1
 	docker network rm $NET $TWO $FREE acc_new >/dev/null 2>&1
 	rm -rf "$DIR" "$RULESD"
 }
@@ -276,6 +277,24 @@ sleep 3
 C1=$(docker exec rn1 grep -c tick /tmp/rn 2>/dev/null); sleep 2; C2=$(docker exec rn1 grep -c tick /tmp/rn 2>/dev/null)
 no_ "rn1 -> rn2 kept flowing once rn2 was renamed ($C1 -> $C2 lines)" sh -c "[ '$C2' -gt '$C1' ]"
 docker rm -f rn1 rn3 >/dev/null
+echo "$MAIN" | write_rules $RULES
+
+say "a cut interrupted by a restart is done at start"
+serve cr1; serve cr2
+{ echo "$MAIN"; echo "allow [cr1] -> [cr2]:5432"; } | write_rules $RULES
+docker exec -d cr1 sh -c "while sleep 0.2; do echo tick; done | socat - TCP:$(ip4 cr2):5432 >/tmp/cr 2>&1"
+sleep 2
+chmod -x /usr/sbin/conntrack # cuts fail from here
+docker rename cr2 cr3
+sleep 3
+yes_ "the rules aren't confirmed while the cut is pending" test ! -e /var/lib/dfw/applied
+systemctl stop dfw
+chmod +x /usr/sbin/conntrack
+systemctl start dfw
+sleep 3
+C1=$(docker exec cr1 grep -c tick /tmp/cr 2>/dev/null); sleep 2; C2=$(docker exec cr1 grep -c tick /tmp/cr 2>/dev/null)
+no_ "cr1 -> cr2 kept flowing after a restart interrupted its cut ($C1 -> $C2 lines)" sh -c "[ '$C2' -gt '$C1' ]"
+docker rm -f cr1 cr3 >/dev/null
 echo "$MAIN" | write_rules $RULES
 
 say "a bridge Docker doesn't list stays blocked while a filtered network is missing"
