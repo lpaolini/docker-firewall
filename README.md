@@ -1,4 +1,4 @@
-# Docker firewall
+# `dfw` - Docker firewall
 
 Docker containers on a bridge network are, by default, free to talk to each
 other and to reach any destination outside.
@@ -162,7 +162,7 @@ command that opens the containers.
 - If the table is deleted or changed (`nft flush ruleset`, restarting
   `nftables.service`), the kernel notifies dfw, which restores it at once.
 
-### Several networks
+### Multiple networks
 
 A container gets its rules on each filtered network it is on. dfw adds no
 firewall between networks: Docker already isolates bridge networks from each
