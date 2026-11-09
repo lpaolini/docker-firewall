@@ -3,7 +3,7 @@
 dfw \- firewall for the containers on chosen Docker networks
 .SH SYNOPSIS
 .B dfw
-.RB { plan " [" \fIFILE\fP "] | " apply | enable | disable | init " [" \-\-live "] | " run | active | version }
+.RB { check " [" \fIFILE\fP "] | " apply | enable | disable | version }
 .SH DESCRIPTION
 .B dfw
 filters the traffic of the containers on the Docker bridge networks named in
@@ -15,7 +15,7 @@ mentions has no network access. Other networks are left alone. See
 /usr/share/doc/dfw/README.md for the syntax.
 .SH COMMANDS
 .TP
-.BR plan " [" \fIFILE\fP ]
+.BR check " [" \fIFILE\fP ]
 Show the errors in the rules, what each running container on the filtered
 networks would get, and their ports with no container behind them. With
 .IR FILE ,
@@ -41,12 +41,12 @@ running: use
 .B disable
 Stop dfw.service, remove the drop-in and delete the table. This is the only
 command that opens containers.
+.SH INTERNAL COMMANDS
+Run by systemd and the package, not by hand.
 .TP
-.BR init " [" \-\-live ]
+.B init
 Load the base table if it is missing or damaged; run by docker.service
-before Docker starts. With
-.BR \-\-live ,
-also load every running container's rules in the same transaction.
+before Docker starts.
 .TP
 .B run
 Keep the table in line with the rules and Docker, and repair the table if

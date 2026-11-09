@@ -41,7 +41,7 @@ activation, Docker never runs without the table. It has its own 60-second
 timeout and leaves an intact table untouched, so containers keep their rules
 when Docker restarts. Nothing removes the table except `dfw disable`.
 
-The other commands are `dfw plan [FILE]` (read-only review), `dfw enable`,
+The other commands are `dfw check [FILE]` (read-only review), `dfw enable`,
 `dfw apply`, `dfw disable`, `dfw active` (used by the package's `prerm`) and
 `dfw version`.
 
@@ -150,7 +150,7 @@ allow can start at once; the rest are refused and marked again.
 
 - `[name]` is every running container on the filtered networks with that
   container or compose service name, with all its filtered addresses. No
-  match resolves to nothing, which `dfw plan` reports.
+  match resolves to nothing, which `dfw check` reports.
 - Zones are computed per container. `host` is the host's own addresses plus
   the gateways of the container's filtered networks; `lan`, `rfc1918` and
   `internet` exclude it. `internet` also excludes loopback, link-local,
@@ -238,7 +238,7 @@ systemd's other sandboxing options.
 
 `dfw enable` refuses if `dfw.service` is already running (that is
 `dfw apply`'s job) or if the rules have errors. Otherwise it saves them as
-the active rules and does what `dfw init --live` does: it loads the base
+the active rules, loads the base
 table and every container's rules in one transaction, then deletes the
 tracked connections of every filtered container, so forbidden ones are cut
 and allowed ones reconnect. It then writes the `docker.service` drop-in and enables and starts

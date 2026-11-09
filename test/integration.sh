@@ -160,7 +160,7 @@ no_ "no table after install" nft list table bridge fw
 yes_ "dfw.service neither enabled nor started" sh -c '! systemctl is-enabled -q dfw && ! systemctl is-active -q dfw'
 yes_ "containers still reach the internet" web $N "$EXT"
 
-say "plan and enable"
+say "check and enable"
 no_ "dfw enable with the shipped rules (no network)" sh -c "dfw enable >$DIR/enable 2>&1"
 printf '%s\nallow [a] -> [b]:5432, oops:\n' "$MAIN" | write_rules $RULES
 no_ "dfw enable with an error in the rules" sh -c "dfw enable >$DIR/enable 2>&1"
@@ -168,12 +168,12 @@ yes_ "the refusal names the line" grep -q "$RULES:11: destination" "$DIR/enable"
 no_ "nothing changed by the refused enables" sh -c "nft list table bridge fw >/dev/null 2>&1"
 echo "$MAIN" | write_rules $RULES
 printf 'network %s\nallow [a] -> [nobody]\n' "$NET" >"$DIR/candidate"
-dfw plan "$DIR/candidate" >"$DIR/plan" 2>&1
-yes_ "plan FILE checks a candidate file" grep -qF "[nobody] matches no running container" "$DIR/plan"
-dfw plan >"$DIR/plan" 2>&1
-yes_ "plan lists the containers on the network, and only those" sh -c "grep -q '^acc-a-1' $DIR/plan && grep -q '^acc-n-1' $DIR/plan && ! grep -q '^acc-f-1' $DIR/plan"
-yes_ "plan flags the unmentioned container" grep -q "no rule mentions it" "$DIR/plan"
-yes_ "plan flags the container on two networks" grep -q "is also on network $FREE" "$DIR/plan"
+dfw check "$DIR/candidate" >"$DIR/check" 2>&1
+yes_ "check FILE checks a candidate file" grep -qF "[nobody] matches no running container" "$DIR/check"
+dfw check >"$DIR/check" 2>&1
+yes_ "check lists the containers on the network, and only those" sh -c "grep -q '^acc-a-1' $DIR/check && grep -q '^acc-n-1' $DIR/check && ! grep -q '^acc-f-1' $DIR/check"
+yes_ "check flags the unmentioned container" grep -q "no rule mentions it" "$DIR/check"
+yes_ "check flags the container on two networks" grep -q "is also on network $FREE" "$DIR/check"
 yes_ "dfw enable" dfw enable
 yes_ "dfw.service active" systemctl is-active -q dfw
 yes_ "drop-in installed" test -f /etc/systemd/system/docker.service.d/dfw.conf
@@ -204,7 +204,7 @@ no_ "n -> gateway" pings $N "$(gw $N)"
 yes_ "loopback inside n still works" tcp $N 127.0.0.1 80
 
 say "several filtered networks"
-yes_ "plan shows both networks" sh -c "grep -q '^network $NET (bridge' $DIR/plan && grep -q '^network $TWO (bridge' $DIR/plan"
+yes_ "check shows both networks" sh -c "grep -q '^network $NET (bridge' $DIR/check && grep -q '^network $TWO (bridge' $DIR/check"
 yes_ "t, on $TWO, -> $EXT" pings $T "$EXT"
 no_ "t2, on $TWO with no rule, -> $EXT" pings $T2 "$EXT"
 yes_ "m2, on both, -> b:5432 over $NET" tcp $M2 "$(ip4 $B)" 5432
@@ -217,8 +217,8 @@ say "on a live system, edits apply only through dfw apply"
 echo "allow [n] -> $EXT" | save_rules $RULESD/n.rules
 sleep 2
 no_ "n -> $EXT after saving a rule in rules.d, before dfw apply" pings $N "$EXT"
-dfw plan >"$DIR/plan2" 2>&1
-yes_ "plan notes the rules differ from those applied" grep -q "run dfw apply" "$DIR/plan2"
+dfw check >"$DIR/check2" 2>&1
+yes_ "check notes the rules differ from those applied" grep -q "run dfw apply" "$DIR/check2"
 yes_ "dfw apply" dfw apply
 yes_ "n -> $EXT after dfw apply" pings $N "$EXT"
 drop_rules $RULESD/n.rules

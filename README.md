@@ -118,7 +118,7 @@ comma-separated list. The destination may end in `:port`, `:port/tcp`,
 - **Edits need `sudo dfw apply`.** It refuses rules with errors; otherwise it
   applies them at once and cuts connections that lost permission. It returns
   once dfw confirms both, or fails after 30 seconds (see `journalctl -u dfw`).
-  No container is recreated. `dfw plan` says when the files differ from the
+  No container is recreated. `dfw check` says when the files differ from the
   applied rules.
 - **At start, `dfw.service` applies the files if they are valid**, and cuts
   the connections of containers that lost a permission, by edited rules or
@@ -135,8 +135,8 @@ no rule mentions, so review first:
 
 1. Create the networks and attach the containers.
 2. Write `/etc/dfw/rules` (the installed file has commented examples). Check
-   a draft with `sudo dfw plan FILE`.
-3. Run `sudo dfw plan`. It lists rule errors, each container with its rules,
+   a draft with `sudo dfw check FILE`.
+3. Run `sudo dfw check`. It lists rule errors, each container with its rules,
    names that match no container, containers also on unfiltered networks,
    and bridges it will block because a filtered network doesn't exist yet.
 4. Run `sudo dfw enable`. It refuses rules with errors. Otherwise it loads

@@ -39,7 +39,7 @@ ExecStartPre=/usr/sbin/dfw init
 
 const usage = `usage: dfw <command>
 
-  plan [FILE]      show the rules each running container would get (read-only),
+  check [FILE]     show the rules each running container would get (read-only),
                    from /etc/dfw/rules and rules.d/*.rules, or from FILE alone.
                    Exits 1 if the rules have errors
   apply            apply the edited rules to a running dfw. Refuses if they have
@@ -49,12 +49,14 @@ const usage = `usage: dfw <command>
                    dfw is already running (use apply)
   disable          stop dfw.service, remove the drop-in, delete the table.
                    This opens every container
-  init [--live]    load the base table if missing (run by docker.service).
-                   --live also loads every running container's rules at once
-  run              keep the table in line with the rules and Docker (run by
-                   dfw.service). Applies /etc/dfw's rules at start, if valid
-  active           exit 0 if the firewall is enabled or its table is loaded
   version          print the version
+
+Run by systemd and the package, not by hand:
+
+  init             load the base table if missing (before docker.service starts)
+  run              keep the table in line with the rules and Docker (dfw.service).
+                   Applies /etc/dfw's rules at start, if valid
+  active           exit 0 if the firewall is enabled or its table is loaded
 `
 
 func logf(format string, a ...any) { log.Printf(format, a...) }
@@ -68,9 +70,8 @@ func main() {
 	cmd, args := os.Args[1], os.Args[2:]
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	live := fs.Bool("live", false, "")
 	_ = fs.Parse(args)
-	if fs.NArg() > 1 || fs.NArg() == 1 && cmd != "plan" {
+	if fs.NArg() > 1 || fs.NArg() == 1 && cmd != "check" {
 		fs.Usage()
 		os.Exit(2)
 	}
@@ -79,10 +80,10 @@ func main() {
 	case "run":
 		err = cmdRun()
 	case "init":
-		err = cmdInit(*live)
-	case "plan":
+		err = cmdInit()
+	case "check":
 		var errs int
-		if errs, _, err = cmdPlan(fs.Arg(0)); err == nil && errs > 0 {
+		if errs, _, err = cmdCheck(fs.Arg(0)); err == nil && errs > 0 {
 			os.Exit(1)
 		}
 	case "enable":
@@ -109,16 +110,13 @@ func main() {
 
 // cmdInit loads the base table if it is missing or damaged. It never touches
 // an intact table, so containers keep their rules when Docker restarts.
-func cmdInit(live bool) error {
+func cmdInit() error {
 	// docker.service may have no start timeout, so enforce our own.
 	t := time.AfterFunc(60*time.Second, func() {
 		logf("error: dfw init timed out")
 		os.Exit(1)
 	})
 	defer t.Stop()
-	if live {
-		return initLive()
-	}
 	links, err := netlink.Links(-1)
 	if err != nil {
 		return err
@@ -230,10 +228,10 @@ func initLive() error {
 	return nil
 }
 
-// cmdPlan prints the rules and what each running container on the filtered
+// cmdCheck prints the rules and what each running container on the filtered
 // networks would get. It returns the number of errors in the rules and the
 // files it read.
-func cmdPlan(file string) (int, []rules.File, error) {
+func cmdCheck(file string) (int, []rules.File, error) {
 	files, err := readRules(file)
 	if err != nil {
 		return 0, nil, err
@@ -341,10 +339,10 @@ func short(rs []rules.Range) string {
 	return strings.Join(s, " ")
 }
 
-// checkRules prints the plan and returns the rules being edited if they
+// checkRules prints what check prints and returns the rules being edited if they
 // can be applied: exactly the files it checked, not a later read.
 func checkRules() ([]rules.File, error) {
-	errs, files, err := cmdPlan("")
+	errs, files, err := cmdCheck("")
 	if err != nil {
 		return nil, err
 	}

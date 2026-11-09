@@ -17,5 +17,5 @@ Description: firewall for the containers on chosen Docker networks
  its rules are in place, and a container no rule mentions has no network
  access. Other networks are left alone.
  .
- Installing the package activates nothing. Write the rules, run "dfw plan"
+ Installing the package activates nothing. Write the rules, run "dfw check"
  to review them, then "dfw enable" to cut over.
