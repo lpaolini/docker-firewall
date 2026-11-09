@@ -39,17 +39,13 @@ ExecStartPre=/usr/sbin/dfw init
 
 const usage = `usage: dfw <command>
 
-  check [FILE]     show the rules each running container would get (read-only),
-                   from /etc/dfw/rules and rules.d/*.rules, or from FILE alone.
-                   Exits 1 if the rules have errors
-  apply            apply the edited rules to a running dfw. Refuses if they have
-                   errors. Edits take effect only through apply (or a restart)
-  enable           cut over: load all rules, write the docker.service drop-in,
-                   start dfw.service. Refuses if the rules have errors, or if
-                   dfw is already running (use apply)
-  disable          stop dfw.service, remove the drop-in, delete the table.
-                   This opens every container
-  version          print the version
+  check [FILE]   check the rules in a specified file or all
+  apply          apply all rules
+  enable         start filtering
+  disable        stop filtering
+  version        print the version
+
+See dfw(8).
 `
 
 func logf(format string, a ...any) { log.Printf(format, a...) }
