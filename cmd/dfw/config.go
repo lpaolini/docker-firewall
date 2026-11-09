@@ -158,7 +158,7 @@ func bootRuleset() nft.Ruleset {
 		return nft.Ruleset{}
 	}
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if len(lines) == 0 || lines[0] != recordHeader(cfg.Networks) {
+	if lines[0] != recordHeader(cfg.Networks) {
 		return nft.Ruleset{}
 	}
 	return nft.Ruleset{Open: lines[1:]}

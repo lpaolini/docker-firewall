@@ -44,8 +44,9 @@ type world struct {
 	ctrs      []*ctr
 	hostAddrs []netip.Addr
 	links     []netlink.Link
-	unknown   []netlink.Link // ports of filtered bridges with no container behind them
-	problems  []string       // containers or networks that couldn't be handled
+	byIndex   map[int]netlink.Link // links by index
+	unknown   []netlink.Link       // ports of filtered bridges with no container behind them
+	problems  []string             // containers or networks that couldn't be handled
 }
 
 // gather reads Docker and the kernel. It fails only if they can't be read.
@@ -65,6 +66,10 @@ func gather(ctx context.Context, dc *docker.Client, cfg rules.Config) (*world, e
 	if w.links, err = netlink.Links(-1); err != nil {
 		return nil, err
 	}
+	w.byIndex = map[int]netlink.Link{}
+	for _, l := range w.links {
+		w.byIndex[l.Index] = l
+	}
 	// And the networks again after the links: a bridge in the links whose
 	// network was being created is then either listed, or its network is
 	// missing, never hidden by a listing older than the bridge.
@@ -75,12 +80,9 @@ func gather(ctx context.Context, dc *docker.Client, cfg rules.Config) (*world, e
 	if w.hostAddrs, err = hostAddrs(); err != nil {
 		return nil, err
 	}
-	var daemon struct{ DNS []string }
-	if b, err := os.ReadFile(daemonJSON); err == nil && json.Unmarshal(b, &daemon) != nil {
-		daemon.DNS = nil
-	}
+	dns := defaultDNS()
 	for _, id := range ids {
-		c, err := w.container(ctx, dc, id, drivers, daemon.DNS)
+		c, err := w.container(ctx, dc, id, drivers, dns)
 		if err != nil {
 			var se *docker.StatusError
 			if !errors.As(err, &se) || se.Code != 404 { // 404: gone since the list
@@ -201,7 +203,7 @@ func (w *world) missing() []string {
 	return out
 }
 
-func (w *world) container(ctx context.Context, dc *docker.Client, id string, drivers map[string]string, daemonDNS []string) (*ctr, error) {
+func (w *world) container(ctx context.Context, dc *docker.Client, id string, drivers map[string]string, defaults []string) (*ctr, error) {
 	cfg := w.cfg
 	info, err := dc.Inspect(ctx, id)
 	if err != nil {
@@ -239,7 +241,7 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 		}
 	}
 
-	ports, err := findPorts(info, append(slices.Clone(filtered), others...), w.links)
+	ports, err := findPorts(info, append(slices.Clone(filtered), others...), w.byIndex)
 	if err != nil {
 		c.errors = append(c.errors, "can't find its veths, so it stays blocked: "+err.Error())
 	}
@@ -269,7 +271,7 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 		}
 	}
 	var viaHost []string
-	c.dns, viaHost = upstreamDNS(info, daemonDNS)
+	c.dns, viaHost = upstreamDNS(info, defaults)
 	if len(viaHost) > 0 && len(c.out) > 0 {
 		c.warnings = append(c.warnings, "DNS lookups go through the host's resolver "+strings.Join(viaHost, ", ")+" and can't be filtered")
 	}
@@ -285,7 +287,7 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 // findPorts finds the host side of the container's veth on each network, by
 // MAC, without entering its namespace: the host reads the container's links
 // through the namespace ID it already uses for the veth peers.
-func findPorts(info *docker.Container, networks []string, host []netlink.Link) (map[string]nft.Port, error) {
+func findPorts(info *docker.Container, networks []string, byIndex map[int]netlink.Link) (map[string]nft.Port, error) {
 	nsid, err := netlink.NsidOfPid(info.State.Pid)
 	if err != nil {
 		return nil, err
@@ -293,10 +295,6 @@ func findPorts(info *docker.Container, networks []string, host []netlink.Link) (
 	inside, err := netlink.Links(nsid)
 	if err != nil {
 		return nil, err
-	}
-	byIndex := map[int]netlink.Link{}
-	for _, l := range host {
-		byIndex[l.Index] = l
 	}
 	ports := map[string]nft.Port{}
 	for _, name := range networks {
@@ -325,25 +323,31 @@ func findPorts(info *docker.Container, networks []string, host []netlink.Link) (
 	return ports, nil
 }
 
+// defaultDNS returns the servers containers without --dns use: like Docker,
+// daemon.json's "dns", else the host's resolv.conf (and the systemd-resolved
+// upstreams behind a loopback stub).
+func defaultDNS() []string {
+	var daemon struct{ DNS []string }
+	if b, err := os.ReadFile(daemonJSON); err == nil && json.Unmarshal(b, &daemon) == nil && len(daemon.DNS) > 0 {
+		return daemon.DNS
+	}
+	servers := nameservers(hostResolvConf)
+	for _, s := range servers {
+		if a, err := netip.ParseAddr(s); err == nil && a.IsLoopback() {
+			return append(servers, nameservers(resolvedConf)...)
+		}
+	}
+	return servers
+}
+
 // upstreamDNS returns the servers a container's lookups go to through its
 // own veth, and those Docker reaches from the host instead. It reads only
 // what the host's administrator controls, never the container's resolv.conf,
-// which the container can write. Like Docker, it takes the container's --dns
-// option, else daemon.json's "dns" (daemonDNS), else the host's resolv.conf
-// (and the systemd-resolved upstreams behind a loopback stub).
-func upstreamDNS(info *docker.Container, daemonDNS []string) (direct []netip.Addr, viaHost []string) {
+// which the container can write: its --dns option, else defaults (defaultDNS).
+func upstreamDNS(info *docker.Container, defaults []string) (direct []netip.Addr, viaHost []string) {
 	servers := info.HostConfig.DNS
 	if len(servers) == 0 {
-		servers = daemonDNS
-	}
-	if len(servers) == 0 {
-		servers = nameservers(hostResolvConf)
-		for _, s := range servers {
-			if a, err := netip.ParseAddr(s); err == nil && a.IsLoopback() {
-				servers = append(servers, nameservers(resolvedConf)...)
-				break
-			}
-		}
+		servers = defaults
 	}
 	for _, s := range servers {
 		a, err := netip.ParseAddr(s)

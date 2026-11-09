@@ -64,21 +64,26 @@ func Normalize(rs []Range) []Range {
 // Subtract returns the addresses in rs that are not in cut.
 func Subtract(rs, cut []Range) []Range {
 	rs, cut = Normalize(rs), Normalize(cut)
+	// Both are sorted, IPv4 before IPv6, so one pass over cut serves all of rs.
 	var out []Range
+	i := 0
 	for _, r := range rs {
+		for i < len(cut) && cut[i].Hi.Less(r.Lo) {
+			i++ // ends before r, so before every later range too
+		}
 		cur, alive := r, true
-		for _, c := range cut {
-			if !alive || c.Lo.BitLen() != cur.Lo.BitLen() || c.Hi.Less(cur.Lo) || cur.Hi.Less(c.Lo) {
-				continue
+		for _, c := range cut[i:] {
+			if cur.Hi.Less(c.Lo) {
+				break // starts after cur, and so do the rest
 			}
 			if cur.Lo.Less(c.Lo) {
 				out = append(out, Range{cur.Lo, c.Lo.Prev()})
 			}
-			if c.Hi.Less(cur.Hi) {
-				cur.Lo = c.Hi.Next()
-			} else {
+			if !c.Hi.Less(cur.Hi) {
 				alive = false
+				break
 			}
+			cur.Lo = c.Hi.Next()
 		}
 		if alive {
 			out = append(out, cur)

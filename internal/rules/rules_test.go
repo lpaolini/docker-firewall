@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net/netip"
 	"strings"
 	"testing"
@@ -296,4 +297,39 @@ func Contains(rs []Range, a netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+// TestSubtractBrute checks Subtract against address-by-address membership on
+// random ranges of both families.
+func TestSubtractBrute(t *testing.T) {
+	rnd := rand.New(rand.NewPCG(1, 2))
+	addr := func(v6 bool, n int) netip.Addr {
+		if v6 {
+			return netip.AddrFrom16([16]byte{0: 0xfd, 15: byte(n)})
+		}
+		return netip.AddrFrom4([4]byte{10, 0, 0, byte(n)})
+	}
+	ranges := func() []Range {
+		var rs []Range
+		for range rnd.IntN(6) {
+			v6, lo := rnd.IntN(2) == 0, rnd.IntN(64)
+			rs = append(rs, Range{addr(v6, lo), addr(v6, lo+rnd.IntN(8))})
+		}
+		return rs
+	}
+	for i := range 2000 {
+		rs, cut := ranges(), ranges()
+		got := Subtract(rs, cut)
+		for _, v6 := range []bool{false, true} {
+			for n := range 72 {
+				a := addr(v6, n)
+				if want := Contains(rs, a) && !Contains(cut, a); Contains(got, a) != want {
+					t.Fatalf("%d: Subtract(%v, %v) = %v: %s in it is %v, want %v", i, rs, cut, got, a, !want, want)
+				}
+			}
+		}
+		if n := Normalize(got); str(n) != str(got) {
+			t.Fatalf("%d: Subtract(%v, %v) = %v, not normalized", i, rs, cut, got)
+		}
+	}
 }

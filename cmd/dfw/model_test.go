@@ -84,6 +84,7 @@ func TestBootRuleset(t *testing.T) {
 func TestUpstreamDNS(t *testing.T) {
 	dir := t.TempDir()
 	hostResolvConf, resolvedConf = filepath.Join(dir, "resolv.conf"), filepath.Join(dir, "resolved.conf")
+	daemonJSON = filepath.Join(dir, "daemon.json")
 	write := func(path, text string) {
 		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 			t.Fatal(err)
@@ -102,17 +103,19 @@ func TestUpstreamDNS(t *testing.T) {
 	for _, tc := range []struct {
 		name, resolv string
 		ctr          *docker.Container
-		daemon       []string
+		daemon       string // daemon.json
 		direct, via  string
 	}{
-		{"--dns wins", "nameserver 10.0.0.53\n", ctr([]string{"9.9.9.9"}, "fw"), []string{"1.1.1.1"}, "[9.9.9.9]", "[]"},
-		{"daemon.json next", "nameserver 10.0.0.53\n", ctr(nil, "fw"), []string{"1.1.1.1", "bad"}, "[1.1.1.1]", "[]"},
-		{"host resolv.conf last", "nameserver 10.0.0.53\n", ctr(nil, "fw"), nil, "[10.0.0.53]", "[]"},
-		{"loopback stub: its upstreams, stub via host", "nameserver 127.0.0.53\n", ctr(nil, "fw"), nil, "[192.168.1.1 fe80::1]", "[127.0.0.53]"},
-		{"default bridge falls back to Google", "nameserver 127.0.0.1\n", ctr([]string{"127.0.0.1"}, "bridge"), nil, "[8.8.8.8 8.8.4.4]", "[]"},
+		{"--dns wins", "nameserver 10.0.0.53\n", ctr([]string{"9.9.9.9"}, "fw"), `{"dns": ["1.1.1.1"]}`, "[9.9.9.9]", "[]"},
+		{"daemon.json next", "nameserver 10.0.0.53\n", ctr(nil, "fw"), `{"dns": ["1.1.1.1", "bad"]}`, "[1.1.1.1]", "[]"},
+		{"host resolv.conf last", "nameserver 10.0.0.53\n", ctr(nil, "fw"), `{}`, "[10.0.0.53]", "[]"},
+		{"unreadable daemon.json: host resolv.conf", "nameserver 10.0.0.53\n", ctr(nil, "fw"), `{"dns": [`, "[10.0.0.53]", "[]"},
+		{"loopback stub: its upstreams, stub via host", "nameserver 127.0.0.53\n", ctr(nil, "fw"), ``, "[192.168.1.1 fe80::1]", "[127.0.0.53]"},
+		{"default bridge falls back to Google", "nameserver 127.0.0.1\n", ctr([]string{"127.0.0.1"}, "bridge"), ``, "[8.8.8.8 8.8.4.4]", "[]"},
 	} {
 		write(hostResolvConf, tc.resolv)
-		direct, via := upstreamDNS(tc.ctr, tc.daemon)
+		write(daemonJSON, tc.daemon)
+		direct, via := upstreamDNS(tc.ctr, defaultDNS())
 		if fmt.Sprint(direct) != tc.direct || fmt.Sprint(via) != tc.via {
 			t.Errorf("%s: direct %v via host %v, want %s %s", tc.name, direct, via, tc.direct, tc.via)
 		}
