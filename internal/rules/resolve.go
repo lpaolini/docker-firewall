@@ -33,7 +33,7 @@ type Allow struct {
 	ICMP  []Range             // ICMP (to IPv4) and ICMPv6 (to IPv6)
 }
 
-// Fixed zone contents (design.md, section 5.1).
+// Fixed zone contents (docs/how-it-works.md).
 var (
 	lanRanges     = prefixes("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
 	rfc1918Ranges = prefixes("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Gate test, design section 8. Needs only Docker, nft, tcpdump and socat.
+# Checks the kernel and Docker behaviour dfw relies on. Needs only Docker, nft, tcpdump and socat.
 #
 # Run as root on a DISPOSABLE Debian 13 VM: it loads nf_conntrack_bridge and
 # installs a bridge table that blocks every container on the host.
@@ -58,7 +58,7 @@ veth() { nsenter -t "$(docker inspect -f '{{.State.Pid}}' "$1")" -n ip -o link s
 ip4() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1"; }
 ip6() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").GlobalIPv6Address}}" "$1"; }
 
-# rules NAME OUT_RULES IN_RULES: per-container chains, shaped like section 4.2.
+# rules NAME OUT_RULES IN_RULES: per-container chains, shaped like dfw's.
 rules() {
 	local n=$1 idx
 	idx=$(veth "$n")

@@ -89,7 +89,7 @@ jobs:
 
   # Needs root and a real kernel with nf_conntrack_bridge. GitHub has no
   # Debian runners; Ubuntu's kernel and Docker stand in. The gate test proper
-  # is run by hand on Debian 13 (docs/design.md, section 8).
+  # is run by hand on Debian 13 (docs/how-it-works.md).
   integration:
     needs: package
     runs-on: ubuntu-24.04

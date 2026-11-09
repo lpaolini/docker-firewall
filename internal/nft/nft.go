@@ -150,7 +150,7 @@ func strs(rs []rules.Range, suffix string) []string {
 	return out
 }
 
-// chains returns a container's two chains (design.md, section 4.3).
+// chains returns a container's two chains (docs/how-it-works.md).
 func chains(c Container) (out, in []string) {
 	k := Key(c.ID)
 	out = []string{

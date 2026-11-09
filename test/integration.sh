@@ -1,5 +1,5 @@
 #!/bin/bash
-# Acceptance tests for dfw (docs/rules.md). Run as root on a
+# Acceptance tests for dfw. Run as root on a
 # DISPOSABLE Debian 13 machine with Docker and docker compose, with the dfw
 # package NOT installed, and socat, curl, tcpdump and jq on the host:
 #
@@ -176,6 +176,7 @@ yes_ "plan flags the container on two networks" grep -q "is also on network $FRE
 yes_ "dfw enable" dfw enable
 yes_ "dfw.service active" systemctl is-active -q dfw
 yes_ "drop-in installed" test -f /etc/systemd/system/docker.service.d/dfw.conf
+no_ "dfw enable refuses while dfw runs" dfw enable
 for c in $A $B $L $D $N $MH $T $T2 $M2; do wait_rules $c || bad "no rules for $c"; done
 
 say "the example: one rule opens one direction, IPv4 and IPv6"

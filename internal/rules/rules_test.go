@@ -194,7 +194,7 @@ func TestResolve(t *testing.T) {
 
 func TestParseConfig(t *testing.T) {
 	c := ParseConfig([]File{{"rules", `
-# example from docs/rules.md
+# example from the README
 network fw
 allow [foo] -> [bar]:5432/tcp
 allow [foo] -> internet
