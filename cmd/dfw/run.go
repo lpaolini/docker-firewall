@@ -196,8 +196,12 @@ func (r *runner) config() *rules.Config {
 	return r.cfg
 }
 
-// markApplied tells dfw apply that the active rules are in the table.
+// markApplied tells dfw apply that the active rules are in force: in the
+// table, with every connection that lost its permission cut.
 func (r *runner) markApplied() {
+	if len(r.pending) > 0 {
+		return
+	}
 	if r.cfgHash != "" && r.cfgHash != r.marked {
 		if err := writeAtomic(appliedFile, []byte(r.cfgHash+"\n")); err != nil {
 			logf("warning: can't record that the rules are applied: %v", err)
@@ -257,7 +261,7 @@ func (r *runner) reconcile() (retry bool) {
 	}
 	start := time.Now()
 	if err := r.apply(text, rs); err != nil {
-		logf("error: applying rules failed; changed containers stay blocked until the next try: %v", err)
+		logf("error: applying rules failed; the previous rules stay in force, and new containers stay blocked, until the next try: %v", err)
 		return true
 	}
 	logf("rules applied for %d containers on networks %s in %v", len(rs.Containers), strings.Join(cfg.Networks, ", "), time.Since(start).Round(time.Millisecond))

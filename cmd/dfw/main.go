@@ -45,8 +45,8 @@ const usage = `usage: dfw <command>
   apply            apply the edited rules to a running dfw. Refuses if they have
                    errors. Edits take effect only through apply (or a restart)
   enable           cut over: load all rules, write the docker.service drop-in,
-                   start dfw.service. Refuses if the rules have errors. If dfw
-                   is already running, the same as apply
+                   start dfw.service. Refuses if the rules have errors, or if
+                   dfw is already running (use apply)
   disable          stop dfw.service, remove the drop-in, delete the table.
                    This opens every container
   init [--live]    load the base table if missing (run by docker.service).
@@ -339,7 +339,7 @@ func checkRules() ([]rules.File, error) {
 
 func cmdEnable() error {
 	if serviceActive() {
-		return cmdApply()
+		return errors.New("dfw is already enabled; use dfw apply to apply edited rules")
 	}
 	files, err := checkRules()
 	if err != nil {
