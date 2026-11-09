@@ -194,6 +194,7 @@ func initLive() error {
 	if err != nil {
 		return fmt.Errorf("can't read Docker, nothing was changed: %w", err)
 	}
+	w.holdUnlisted(nil)
 	rs := w.ruleset()
 	// Until every connection is cut below, dfw run must not count the rules
 	// as confirmed.

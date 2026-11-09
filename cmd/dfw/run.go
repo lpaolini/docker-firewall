@@ -24,9 +24,6 @@ const (
 	reconcileEvery = 30 * time.Second
 	restoreGap     = time.Second // minimum time between repeated repairs
 	retryAfter     = 2 * time.Second
-	// How long a bridge Docker doesn't list stays blocked before it is
-	// opened: Docker lists a network moments after creating its bridge.
-	unlistedWait = time.Second
 )
 
 type runner struct {
@@ -36,7 +33,7 @@ type runner struct {
 	applied map[string]nft.Container // by container ID
 	cutAll  bool                     // cut every container's connections after the next apply
 	prev    *nft.State               // the table dfw run started with, until the first apply
-	opened  map[string]time.Time     // unlisted bridges: when first seen
+	cleared map[int]bool             // unlisted bridges known not to be a filtered network's
 	unmark  bool                     // refused connections still need deleting
 	rs      nft.Ruleset              // as last applied
 	text    string                   // ruleset text last applied
@@ -67,7 +64,7 @@ func cmdRun() error {
 	dc := docker.New(dockerSock)
 	r := &runner{dc: dc, applied: map[string]nft.Container{}, known: map[int]bool{},
 		logged: map[string]bool{}, strays: map[int]time.Time{}, pending: map[netip.Addr]bool{},
-		cutAll: cutAll, opened: map[string]time.Time{}}
+		cutAll: cutAll, cleared: map[int]bool{}}
 
 	// Veths already in the table were filtered by an earlier dfw run, so their
 	// connections were allowed by the table then; the first apply cuts those
@@ -88,8 +85,10 @@ func cmdRun() error {
 		return err
 	default:
 		r.prev = st
-		for _, e := range st.Sets["open_bridges"] {
-			r.opened[strings.Trim(e, `"`)] = time.Time{} // open already
+		for _, l := range links {
+			if slices.Contains(st.Sets["open_bridges"], `"`+l.Name+`"`) {
+				r.cleared[l.Index] = true // open already
+			}
 		}
 		for _, e := range st.Sets["out_by_port"] {
 			if f := strings.Fields(e); len(f) == 4 && f[2] == "jump" {
@@ -220,7 +219,8 @@ func (r *runner) config() *rules.Config {
 
 // markApplied tells dfw apply that the active rules are in force: in the
 // table, with every connection that lost its permission cut.
-// It rewrites the file whenever it differs, since dfw apply deletes it.
+// It rewrites the file whenever it differs, since it is deleted before each
+// change to the table.
 func (r *runner) markApplied() {
 	if r.busy() || r.cfgHash == "" {
 		return
@@ -254,10 +254,8 @@ func (r *runner) reconcile() (retry bool) {
 		logf("error: can't read Docker, keeping the current rules: %v", err)
 		return true
 	}
+	r.cleared = w.holdUnlisted(r.cleared)
 	r.report(w)
-	if r.holdUnlisted(w) {
-		retry = true
-	}
 	rs := w.ruleset()
 	// A veth new to the rules may have an IP whose old connections are still
 	// tracked. Cut them while it is still blocked, so none can be reused; if
@@ -286,6 +284,13 @@ func (r *runner) reconcile() (retry bool) {
 	if text == r.text && r.ok {
 		r.markApplied()
 		return retry || r.busy()
+	}
+	// The new table may revoke permissions whose connections are cut only
+	// after it is in. Until then, the rules must not count as confirmed, so
+	// that a dfw run restarting in between cuts everything.
+	if err := os.Remove(appliedFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logf("error: can't clear the confirmation, so the previous rules stay in force: %v", err)
+		return true
 	}
 	start := time.Now()
 	if err := r.apply(text, rs); err != nil {
@@ -346,27 +351,6 @@ func lostSince(prev *nft.State, c nft.Container) bool {
 		}
 	}
 	return false
-}
-
-// holdUnlisted keeps blocked, for unlistedWait, the bridges Docker doesn't
-// list that were not seen before: one may be a filtered network's (with a
-// custom bridge.name) that Docker hasn't listed yet. It reports whether any
-// is held, so that a reconcile follows.
-func (r *runner) holdUnlisted(w *world) (held bool) {
-	seen := map[string]time.Time{}
-	for _, b := range w.unlisted {
-		first, ok := r.opened[b]
-		if !ok {
-			first = time.Now()
-		}
-		seen[b] = first
-		if time.Since(first) < unlistedWait {
-			w.open = slices.DeleteFunc(w.open, func(o string) bool { return o == b })
-			held = true
-		}
-	}
-	r.opened = seen
-	return held
 }
 
 // apply loads text and confirms the kernel holds what was intended.
@@ -439,6 +423,9 @@ func (r *runner) report(w *world) {
 	}
 	for _, n := range w.missing() {
 		warn("network %s doesn't exist; its containers will be filtered once it does", n)
+	}
+	for _, b := range w.held {
+		warn("bridge %s is blocked until every filtered network exists, since it may be one's", b)
 	}
 	for _, p := range w.problems {
 		logf("error: %s", p)

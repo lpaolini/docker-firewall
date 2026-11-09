@@ -39,7 +39,8 @@ type world struct {
 	cfg       rules.Config
 	bridges   map[string]string // filtered network -> its bridge device, for those that exist
 	open      []string
-	unlisted  []string // bridges in open that Docker doesn't list
+	unlisted  []netlink.Link // bridges in open that Docker doesn't list
+	held      []string       // of those, the ones dfw run keeps blocked
 	ctrs      []*ctr
 	hostAddrs []netip.Addr
 	links     []netlink.Link
@@ -62,6 +63,12 @@ func gather(ctx context.Context, dc *docker.Client, cfg rules.Config) (*world, e
 	}
 	// After the container list, so it holds every listed container's veths.
 	if w.links, err = netlink.Links(-1); err != nil {
+		return nil, err
+	}
+	// And the networks again after the links: a bridge in the links whose
+	// network was being created is then either listed, or its network is
+	// missing, never hidden by a listing older than the bridge.
+	if nets, err = dc.Networks(ctx); err != nil {
 		return nil, err
 	}
 	fwIndex, drivers := w.classify(nets)
@@ -138,11 +145,11 @@ func (w *world) classify(nets []docker.Network) (fwIndex map[int]bool, drivers m
 			// which may be a filtered one: keep it blocked until it is listed.
 		case nft.ValidIfname(l.Name):
 			// Any other unlisted bridge may also be a filtered network's (with
-			// a custom bridge.name) being created: dfw run opens it only once
-			// it stays unlisted (runner.holdUnlisted).
+			// a custom bridge.name) being created: dfw run decides
+			// (runner.holdUnlisted).
 			w.open = append(w.open, l.Name)
 			if !listed[l.Name] {
-				w.unlisted = append(w.unlisted, l.Name)
+				w.unlisted = append(w.unlisted, l)
 			}
 		default:
 			w.problems = append(w.problems, fmt.Sprintf("bridge %q has a name dfw can't write into rules, so its veths stay blocked", l.Name))
@@ -151,6 +158,28 @@ func (w *world) classify(nets []docker.Network) (fwIndex map[int]bool, drivers m
 	slices.Sort(w.open)
 	w.open = slices.Compact(w.open)
 	return fwIndex, drivers
+}
+
+// holdUnlisted keeps blocked the bridges Docker doesn't list while a
+// filtered network is missing: one may be that network's (with a custom
+// bridge.name), created but not listed yet. Once every filtered network
+// exists, no unlisted bridge can be one's, so those seen then are opened for
+// good. Bridges are tracked by index, so one deleted and created again under
+// the same name is judged again.
+//
+// cleared holds the bridges found safe before; it returns those now.
+func (w *world) holdUnlisted(cleared map[int]bool) map[int]bool {
+	missing := len(w.missing()) > 0
+	now := map[int]bool{}
+	for _, l := range w.unlisted {
+		if cleared[l.Index] || !missing {
+			now[l.Index] = true
+			continue
+		}
+		w.open = slices.DeleteFunc(w.open, func(o string) bool { return o == l.Name })
+		w.held = append(w.held, l.Name)
+	}
+	return now
 }
 
 // dockerBridge reports whether name is the bridge name Docker gives a network

@@ -179,7 +179,9 @@ filtered networks. It therefore blocks veths on every bridge except those in
 as networks come and go, and saves it in `/var/lib/dfw/open-bridges` so the
 table loaded at boot opens the same bridges. As a result:
 
-- A network created while dfw runs is opened within moments.
+- A network created while dfw runs is opened within moments. A bridge Docker
+  doesn't list (libvirt, LXC) is opened only while every `network` line names
+  an existing network; until then it stays blocked and dfw logs a warning.
 - While `dfw.service` is down, containers on a newly created network are
   blocked until it is back.
 - If the saved set is missing, or was made for other `network` lines, every

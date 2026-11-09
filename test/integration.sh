@@ -278,11 +278,14 @@ no_ "rn1 -> rn2 kept flowing once rn2 was renamed ($C1 -> $C2 lines)" sh -c "[ '
 docker rm -f rn1 rn3 >/dev/null
 echo "$MAIN" | write_rules $RULES
 
-say "a new bridge that Docker doesn't list is blocked at first"
+say "a bridge Docker doesn't list stays blocked while a filtered network is missing"
+{ echo "$MAIN"; echo "network acc_missing"; } | write_rules $RULES
 ip link add dfwtest0 type bridge
-sleep 0.3
-no_ "dfwtest0 is open at once" sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
-yes_ "dfwtest0 is open once it stays unlisted" eventually sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
+sleep 2
+no_ "dfwtest0 opened while acc_missing doesn't exist" sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
+yes_ "dfwtest0 held is logged" logged "bridge dfwtest0 is blocked until every filtered network exists"
+echo "$MAIN" | write_rules $RULES
+yes_ "dfwtest0 is open once every filtered network exists" eventually sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
 ip link del dfwtest0
 
 say "one network: other networks are left alone"

@@ -96,9 +96,11 @@ While `dfw run` is up, a new bridge named the way Docker names a network's
 bridge by default (`br-` and 12 hex digits) stays blocked until Docker lists
 its network, since Docker creates the bridge first. A bridge with any other
 name may also be a filtered network's (with a custom
-`com.docker.network.bridge.name`), so it is opened only once it has stayed
-unlisted for a second, about two seconds after it appears. Bridges already
-open when `dfw run` starts stay open.
+`com.docker.network.bridge.name`), so while any filtered network is missing,
+bridges Docker doesn't list stay blocked, and dfw logs a warning for each.
+Once every filtered network exists, no unlisted bridge can be one's, so those
+are opened, for as long as they exist. dfw reads the networks after the
+interfaces, so a bridge is never judged by a network listing older than it.
 
 `dfw run` updates the set as bridges and networks come and go, and saves it
 in `/var/lib/dfw/open-bridges` with the `network` lines it was made for. At
@@ -226,9 +228,11 @@ systemd's other sandboxing options.
 - Its first apply compares each container's sets with the table it started
   with. A container whose sets lost anything (edited rules, a peer renamed or
   readdressed while `dfw run` was down) has all its connections cut, and
-  allowed ones reconnect. If the rules in force were never confirmed (an
-  earlier `dfw run` or `dfw enable` stopped before its cuts were done), every
-  container's are, as `dfw enable` does.
+  allowed ones reconnect. `dfw run` deletes `/var/lib/dfw/applied` before
+  every change to the table and writes it back once the cuts it needs are
+  done. If it is missing or names other rules at start (an earlier `dfw run`
+  or `dfw enable` stopped before its cuts were done), every container's
+  connections are cut, as `dfw enable` does.
 
 ## Enabling and disabling
 

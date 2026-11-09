@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
 
 	"dfw/internal/docker"
 	"dfw/internal/netlink"
@@ -35,7 +34,7 @@ func TestClassify(t *testing.T) {
 	if want := []string{"br-bbbbbbbbbbbb", "docker0", "virbr0"}; !slices.Equal(w.open, want) {
 		t.Errorf("open = %v, want %v", w.open, want)
 	}
-	if !slices.Equal(w.unlisted, []string{"virbr0"}) {
+	if len(w.unlisted) != 1 || w.unlisted[0].Name != "virbr0" {
 		t.Errorf("unlisted = %v, want virbr0 only", w.unlisted)
 	}
 	if len(fw) != 1 || !fw[2] {
@@ -120,21 +119,32 @@ func TestUpstreamDNS(t *testing.T) {
 	}
 }
 
-// TestHoldUnlisted checks that a bridge Docker doesn't list opens only once it
-// stays unlisted, as a filtered network's bridge may not be listed yet.
+// TestHoldUnlisted checks that a bridge Docker doesn't list stays blocked
+// while a filtered network is missing, as it may be that network's.
 func TestHoldUnlisted(t *testing.T) {
-	r := &runner{opened: map[string]time.Time{"lxcbr0": {}}}
-	w := &world{open: []string{"docker0", "lxcbr0", "virbr1"}, unlisted: []string{"lxcbr0", "virbr1"}}
-	if !r.holdUnlisted(w) || !slices.Equal(w.open, []string{"docker0", "lxcbr0"}) {
-		t.Errorf("open = %v, want the new virbr1 held", w.open)
+	br := func(i int, name string) netlink.Link { return netlink.Link{Index: i, Name: name, Kind: "bridge"} }
+	world := func(missing bool) *world {
+		w := &world{cfg: rules.Config{Networks: []string{"fw"}}, bridges: map[string]string{},
+			open: []string{"docker0", "lxcbr0", "virbr1"}, unlisted: []netlink.Link{br(5, "lxcbr0"), br(6, "virbr1")}}
+		if !missing {
+			w.bridges["fw"] = "br-aaaaaaaaaaaa"
+		}
+		return w
 	}
-	r.opened["virbr1"] = time.Now().Add(-unlistedWait)
-	w = &world{open: []string{"docker0", "virbr1"}, unlisted: []string{"virbr1"}}
-	if r.holdUnlisted(w) || !slices.Equal(w.open, []string{"docker0", "virbr1"}) {
-		t.Errorf("open = %v, want virbr1 open once it stayed unlisted", w.open)
+	w := world(true)
+	cleared := w.holdUnlisted(map[int]bool{5: true})
+	if !slices.Equal(w.open, []string{"docker0", "lxcbr0"}) || !slices.Equal(w.held, []string{"virbr1"}) {
+		t.Errorf("fw missing: open %v held %v, want virbr1 held", w.open, w.held)
 	}
-	if _, ok := r.opened["lxcbr0"]; ok {
-		t.Errorf("a bridge that is gone is still remembered")
+	w = world(false)
+	cleared = w.holdUnlisted(cleared)
+	if len(w.open) != 3 || len(w.held) != 0 || !cleared[6] {
+		t.Errorf("fw exists: open %v held %v, want all open", w.open, w.held)
+	}
+	w = world(true)
+	w.unlisted[1].Index = 7 // virbr1 deleted and created again
+	if w.holdUnlisted(cleared); !slices.Equal(w.held, []string{"virbr1"}) {
+		t.Errorf("a recreated bridge: held %v, want it judged again", w.held)
 	}
 }
 
