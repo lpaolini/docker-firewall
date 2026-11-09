@@ -81,7 +81,9 @@ func TestApplyAndVerify(t *testing.T) {
 	if err := Apply(Render(cs)); err != nil {
 		t.Fatal(err)
 	}
-	st, err := List(nil)
+	// nft prints an index as the name of the host interface that has it,
+	// as dfw run's callers map back through netlink.
+	st, err := List(hostIfnames(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +102,22 @@ func TestApplyAndVerify(t *testing.T) {
 	if err := Apply("add rule bridge fw from_container accept\n"); err != nil {
 		t.Fatal(err)
 	}
-	st2, _ := List(nil)
+	st2, _ := List(hostIfnames(t))
 	if st2.Rules == fp || Diff(Intended(sample()), st2) == "" {
 		t.Fatal("an added rule was not detected")
 	}
+}
+
+func hostIfnames(t *testing.T) map[string]int {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]int{}
+	for _, i := range ifs {
+		m[i.Name] = i.Index
+	}
+	return m
 }
 
 func TestValidID(t *testing.T) {
