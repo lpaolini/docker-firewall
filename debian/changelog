@@ -1,3 +1,10 @@
+dfw (0.1.1) unstable; urgency=medium
+
+  * A running container that Docker fails to answer about keeps its rules,
+    instead of being blocked and having its connections cut.
+
+ -- dfw maintainers <lookap.dev@gmail.com>  Wed, 11 Nov 2026 00:30:07 +0100
+
 dfw (0.1.0) unstable; urgency=medium
 
   * Initial release: a bridge-level nftables firewall for the containers on
