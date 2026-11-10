@@ -43,6 +43,7 @@ type runner struct {
 	pending map[netip.Addr]bool      // addresses whose connections still need cutting
 	logged  map[string]bool          // warnings logged, to log only new ones
 	strays  map[int]time.Time        // filtered-bridge ports with no container: first seen
+	ctrs    map[string]*ctr          // containers as last read, by ID
 	lastFix time.Time
 }
 
@@ -256,10 +257,14 @@ func (r *runner) reconcile() (retry bool) {
 		logf("error: no active rules, so the table is left as it is")
 		return true
 	}
-	w, err := gather(context.Background(), r.dc, *cfg)
+	w, err := gather(context.Background(), r.dc, *cfg, r.ctrs)
 	if err != nil {
 		logf("error: can't read Docker, keeping the current rules: %v", err)
 		return true
+	}
+	r.ctrs = map[string]*ctr{}
+	for _, c := range w.ctrs {
+		r.ctrs[c.info.ID] = c
 	}
 	r.cleared = w.holdUnlisted(r.cleared)
 	r.report(w)

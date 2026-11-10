@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"maps"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -129,6 +132,51 @@ func TestMatchPorts(t *testing.T) {
 	p := matchPorts(&info, []string{"fw"}, nsid, inside, byIndex, bridgeOf)["fw"]
 	if p.IPv4.String() != "10.0.0.2" || p.IPv6.String() != "fd00::2" || p.Subnet6.String() != "fd00::/64" || p.MAC.String() != mac1.String() {
 		t.Errorf("fw port = %+v", p)
+	}
+}
+
+// TestGatherUnreadable checks that a running container Docker can't answer
+// about keeps its veths as last read, under the current rules, and that one
+// never read stays blocked.
+func TestGatherUnreadable(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	sock := filepath.Join(t.TempDir(), "docker.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/networks":
+			io.WriteString(w, `[{"Id":"aaaaaaaaaaaa1234","Name":"fw","Driver":"bridge"}]`)
+		case "/containers/json":
+			io.WriteString(w, `[{"Id":"`+id+`"}]`)
+		default: // inspect
+			http.Error(w, "busy", http.StatusInternalServerError)
+		}
+	})}
+	go srv.Serve(l)
+	defer srv.Close()
+	dc := docker.New(sock)
+	cfg := rules.ParseConfig([]rules.File{{Name: "rules", Text: "network fw\nallow [web] -> internet\n"}})
+
+	old := &ctr{info: &docker.Container{ID: id}, name: "web", ports: []nft.Port{{Ifindex: 11}}}
+	w, err := gather(context.Background(), dc, cfg, map[string]*ctr{id: old})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.ctrs) != 1 || len(w.ctrs[0].ports) != 1 || w.ctrs[0].ports[0].Ifindex != 11 || len(w.ctrs[0].out) != 1 || len(w.problems) != 1 {
+		t.Errorf("with a previous read: ctrs %+v problems %v, want web on veth 11 with its rule", w.ctrs, w.problems)
+	}
+	if old.out != nil {
+		t.Errorf("the previous read was changed")
+	}
+
+	if w, err = gather(context.Background(), dc, cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.ctrs) != 0 || len(w.problems) != 1 {
+		t.Errorf("never read: ctrs %+v problems %v, want it left out (blocked)", w.ctrs, w.problems)
 	}
 }
 

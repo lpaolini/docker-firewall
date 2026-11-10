@@ -51,7 +51,10 @@ type world struct {
 }
 
 // gather reads Docker and the kernel. It fails only if they can't be read.
-func gather(ctx context.Context, dc *docker.Client, cfg rules.Config) (*world, error) {
+// prev holds the containers as last read, by ID: a running container Docker
+// can't answer about now keeps its veths and addresses from then, so a slow
+// answer never cuts it off.
+func gather(ctx context.Context, dc *docker.Client, cfg rules.Config, prev map[string]*ctr) (*world, error) {
 	nets, err := dc.Networks(ctx)
 	if err != nil {
 		return nil, err
@@ -84,13 +87,19 @@ func gather(ctx context.Context, dc *docker.Client, cfg rules.Config) (*world, e
 	dns := defaultDNS()
 	for _, id := range ids {
 		c, err := w.container(ctx, dc, id, drivers, dns)
-		if err != nil {
-			var se *docker.StatusError
-			if !errors.As(err, &se) || se.Code != 404 { // 404: gone since the list
-				// Leave it out: it stays blocked, and peers don't see it.
-				w.problems = append(w.problems, fmt.Sprintf("container %.12s can't be read, so it stays blocked: %v", id, err))
-			}
-			continue
+		var se *docker.StatusError
+		switch {
+		case err == nil:
+		case errors.As(err, &se) && se.Code == 404: // gone since the list
+		case prev[id] != nil:
+			// Under the current rules, so that what dfw apply revokes goes.
+			cp := *prev[id]
+			cp.in, cp.out = cfg.For(cp.name, cp.service)
+			c = &cp
+			w.problems = append(w.problems, fmt.Sprintf("container %s can't be read, so it keeps its veths and addresses as last read: %v", c.name, err))
+		default:
+			// Leave it out: it stays blocked, and peers don't see it.
+			w.problems = append(w.problems, fmt.Sprintf("container %.12s can't be read, so it stays blocked: %v", id, err))
 		}
 		if c != nil {
 			w.ctrs = append(w.ctrs, c)
@@ -273,8 +282,11 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 		}
 	}
 	if len(c.ports)+len(c.blocked) > 0 {
-		if again, err := dc.Inspect(ctx, id); err != nil || !again.State.Running ||
-			again.State.Pid != info.State.Pid || again.State.StartedAt != info.State.StartedAt {
+		again, err := dc.Inspect(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !again.State.Running || again.State.Pid != info.State.Pid || again.State.StartedAt != info.State.StartedAt {
 			return nil, nil // it stopped or restarted meanwhile; the next event covers it
 		}
 	}

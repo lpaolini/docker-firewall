@@ -279,6 +279,7 @@ behind them and stay blocked.
 |---|---|
 | `dfw init` fails | Docker doesn't start |
 | `dfw run` is down, or the Docker socket is unavailable | Running containers keep their rules. New containers on filtered networks, and on networks created meanwhile, stay blocked. Peer IP changes aren't picked up. `dfw run` retries |
+| Docker can't answer about one running container | It keeps the veths and addresses last read, under the active rules; logged as an error on every reconcile. One dfw run hasn't read yet stays blocked |
 | A ruleset is rejected | The previous table stays in force: new containers stay blocked, others keep their previous rules, including permissions being removed. Retried; `dfw apply` reports a timeout |
 | Cutting connections fails | A new container stays blocked; a connection that lost its permission survives until a retry succeeds, and `dfw apply` waits for that, reporting a timeout after 30 s |
 | The rules files have errors | `dfw apply` and `dfw enable` refuse; at start, the rules last applied are kept |

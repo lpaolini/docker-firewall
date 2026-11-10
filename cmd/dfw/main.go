@@ -178,7 +178,7 @@ func initLive() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	w, err := gather(ctx, docker.New(dockerSock), cfg)
+	w, err := gather(ctx, docker.New(dockerSock), cfg, nil)
 	if err != nil {
 		return fmt.Errorf("can't read Docker, nothing was changed: %w", err)
 	}
@@ -239,7 +239,7 @@ func cmdCheck(file string) (int, []rules.File, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	dc := docker.New(dockerSock)
-	w, err := gather(ctx, dc, cfg)
+	w, err := gather(ctx, dc, cfg, nil)
 	if err != nil {
 		return 0, nil, err
 	}
