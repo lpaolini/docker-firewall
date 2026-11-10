@@ -89,6 +89,7 @@ cleanup() {
 	docker rm -f ic1 ic2 internet pub pubok fh kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 >/dev/null 2>&1
 	docker network rm $NET $TWO $FREE acc_new >/dev/null 2>&1
 	ip netns del dfwlan 2>/dev/null
+	[ -n "${RPF:-}" ] && sysctl -qw net.ipv4.conf.all.rp_filter="$RPF"
 	rm -rf "$DIR" "$RULESD"
 }
 trap cleanup EXIT
@@ -374,7 +375,13 @@ wait_rules fh
 yes_ "a -> fh:9999/udp" udp $A "$(ip4 fh)" 9999
 ip netns add dfwlan
 ip link add dfwlan0 type veth peer name eth0 netns dfwlan
+# As a host address, 198.51.100.1 leaves internet ([b] -> internet) at once,
+# not at the 30 s reconcile.
+hole() { nft list table bridge fw | grep -qF 198.51.100.2-; }
+hole && bad "internet has a hole at 198.51.100.1 before the host has it"
 ip addr add 198.51.100.1/30 dev dfwlan0 && ip link set dfwlan0 up
+for _ in 1 2 3 4; do sleep 0.5; hole && break; done
+yes_ "a new host address leaves internet within 2 s" hole
 ip -n dfwlan addr add 198.51.100.2/30 dev eth0 && ip -n dfwlan link set eth0 up && ip -n dfwlan link set lo up
 ip -n dfwlan addr add "$(ip4 $A)/32" dev lo
 ip -n dfwlan route add default via 198.51.100.1

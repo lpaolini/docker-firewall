@@ -34,12 +34,6 @@ const (
 	nfprotoBridge      = 7
 	nftMsgNewgen       = 16
 
-	rtnlgrpLink       = 1
-	rtnlgrpIPv4Ifaddr = 5
-	rtnlgrpIPv6Ifaddr = 9
-	rtScopeLink       = 253
-	rtScopeHost       = 254
-
 	solNetlink   = 270 // not in package syscall
 	nlmFDumpIntr = 0x10
 )
@@ -274,7 +268,7 @@ func WatchBridges(changed func()) error {
 			}
 		}
 	}
-	return watch(syscall.NETLINK_ROUTE, []int{rtnlgrpLink}, changed, func(m syscall.NetlinkMessage) bool {
+	return watch(syscall.NETLINK_ROUTE, []int{syscall.RTNLGRP_LINK}, changed, func(m syscall.NetlinkMessage) bool {
 		t := m.Header.Type
 		if t != syscall.RTM_NEWLINK && t != syscall.RTM_DELLINK {
 			return false
@@ -300,12 +294,37 @@ func WatchBridges(changed func()) error {
 // when notifications were lost. It blocks; it returns only if the socket
 // fails.
 func WatchAddrs(changed func()) error {
-	return watch(syscall.NETLINK_ROUTE, []int{rtnlgrpIPv4Ifaddr, rtnlgrpIPv6Ifaddr}, changed, func(m syscall.NetlinkMessage) bool {
+	return watch(syscall.NETLINK_ROUTE, []int{syscall.RTNLGRP_IPV4_IFADDR, syscall.RTNLGRP_IPV6_IFADDR}, changed, addrChanges())
+}
+
+// addrChanges returns WatchAddrs' match. The kernel announces an address
+// again whenever its lifetimes are refreshed, such as on every router
+// advertisement, so only addresses it hasn't seen yet count as added.
+func addrChanges() func(syscall.NetlinkMessage) bool {
+	seen := map[string]bool{}
+	return func(m syscall.NetlinkMessage) bool {
 		t := m.Header.Type
-		// struct ifaddrmsg: family, prefixlen, flags, scope, index.
-		return (t == syscall.RTM_NEWADDR || t == syscall.RTM_DELADDR) && len(m.Data) >= 4 &&
-			m.Data[3] != rtScopeLink && m.Data[3] != rtScopeHost
-	})
+		// struct ifaddrmsg: family, prefixlen, flags, scope, index (4 bytes).
+		if (t != syscall.RTM_NEWADDR && t != syscall.RTM_DELADDR) || len(m.Data) < 8 ||
+			m.Data[3] == syscall.RT_SCOPE_LINK || m.Data[3] == syscall.RT_SCOPE_HOST {
+			return false
+		}
+		key := string(m.Data[1:2]) + string(m.Data[4:8]) // prefixlen, index
+		for _, a := range parseAttrs(m.Data[8:]) {
+			if a.typ == syscall.IFA_ADDRESS || a.typ == syscall.IFA_LOCAL {
+				key += string(a.data)
+			}
+		}
+		if t == syscall.RTM_DELADDR {
+			delete(seen, key)
+			return true
+		}
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+		return true
+	}
 }
 
 // watch joins netlink multicast groups and calls changed for every message
