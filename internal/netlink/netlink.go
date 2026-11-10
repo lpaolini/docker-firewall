@@ -34,7 +34,11 @@ const (
 	nfprotoBridge      = 7
 	nftMsgNewgen       = 16
 
-	rtnlgrpLink = 1
+	rtnlgrpLink       = 1
+	rtnlgrpIPv4Ifaddr = 5
+	rtnlgrpIPv6Ifaddr = 9
+	rtScopeLink       = 253
+	rtScopeHost       = 254
 
 	solNetlink   = 270 // not in package syscall
 	nlmFDumpIntr = 0x10
@@ -244,7 +248,7 @@ func NsidOfPid(pid int) (int, error) {
 // changes, and when notifications were lost. It blocks; it returns only if
 // the socket fails.
 func WatchNftables(table string, changed func()) error {
-	return watch(syscall.NETLINK_NETFILTER, nfnlgrpNftables, changed, func(m syscall.NetlinkMessage) bool {
+	return watch(syscall.NETLINK_NETFILTER, []int{nfnlgrpNftables}, changed, func(m syscall.NetlinkMessage) bool {
 		t := m.Header.Type
 		if t>>8 != nfnlSubsysNftables || t&0xff == nftMsgNewgen || len(m.Data) < 4 || m.Data[0] != nfprotoBridge {
 			return false
@@ -270,7 +274,7 @@ func WatchBridges(changed func()) error {
 			}
 		}
 	}
-	return watch(syscall.NETLINK_ROUTE, rtnlgrpLink, changed, func(m syscall.NetlinkMessage) bool {
+	return watch(syscall.NETLINK_ROUTE, []int{rtnlgrpLink}, changed, func(m syscall.NetlinkMessage) bool {
 		t := m.Header.Type
 		if t != syscall.RTM_NEWLINK && t != syscall.RTM_DELLINK {
 			return false
@@ -291,9 +295,22 @@ func WatchBridges(changed func()) error {
 	})
 }
 
-// watch joins a netlink multicast group and calls changed for every message
+// WatchAddrs calls changed whenever a host address is added or removed,
+// leaving out loopback and link-local ones (every new veth gets one), and
+// when notifications were lost. It blocks; it returns only if the socket
+// fails.
+func WatchAddrs(changed func()) error {
+	return watch(syscall.NETLINK_ROUTE, []int{rtnlgrpIPv4Ifaddr, rtnlgrpIPv6Ifaddr}, changed, func(m syscall.NetlinkMessage) bool {
+		t := m.Header.Type
+		// struct ifaddrmsg: family, prefixlen, flags, scope, index.
+		return (t == syscall.RTM_NEWADDR || t == syscall.RTM_DELADDR) && len(m.Data) >= 4 &&
+			m.Data[3] != rtScopeLink && m.Data[3] != rtScopeHost
+	})
+}
+
+// watch joins netlink multicast groups and calls changed for every message
 // that match accepts, and when messages were lost.
-func watch(proto, group int, changed func(), match func(syscall.NetlinkMessage) bool) error {
+func watch(proto int, groups []int, changed func(), match func(syscall.NetlinkMessage) bool) error {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, proto)
 	if err != nil {
 		return os.NewSyscallError("socket", err)
@@ -303,8 +320,10 @@ func watch(proto, group int, changed func(), match func(syscall.NetlinkMessage) 
 	if err := syscall.Bind(fd, &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK}); err != nil {
 		return os.NewSyscallError("bind", err)
 	}
-	if err := syscall.SetsockoptInt(fd, solNetlink, syscall.NETLINK_ADD_MEMBERSHIP, group); err != nil {
-		return os.NewSyscallError("join netlink group", err)
+	for _, g := range groups {
+		if err := syscall.SetsockoptInt(fd, solNetlink, syscall.NETLINK_ADD_MEMBERSHIP, g); err != nil {
+			return os.NewSyscallError("join netlink group", err)
+		}
 	}
 	buf := make([]byte, 1<<16)
 	for {

@@ -86,8 +86,9 @@ serve() { # serve NAME [docker run args...]
 cleanup() {
 	chmod +x /usr/sbin/conntrack
 	docker compose -p $P -f "$DIR/compose.yaml" down -t 0 >/dev/null 2>&1
-	docker rm -f ic1 ic2 internet pub pubok kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 >/dev/null 2>&1
+	docker rm -f ic1 ic2 internet pub pubok fh kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 >/dev/null 2>&1
 	docker network rm $NET $TWO $FREE acc_new >/dev/null 2>&1
+	ip netns del dfwlan 2>/dev/null
 	rm -rf "$DIR" "$RULESD"
 }
 trap cleanup EXIT
@@ -363,6 +364,35 @@ yes_ "an apply deletes refused connections, so ones it allows can start" sh -c "
 yes_ "host -> pub's published port once a rule allows it" sh -c "[ \"\$(socat -T3 - TCP:$HOSTIP:18181,connect-timeout=3 </dev/null 2>/dev/null)\" = hi ]"
 echo "$MAIN" | write_rules $RULES
 docker rm -f pub pubok >/dev/null
+
+say "a published port can't be reached with a peer's address as source"
+# fh accepts UDP 9999 from a only. A LAN host (a namespace routed through the
+# host, with reverse-path filtering off) sends to fh's published port as a.
+docker run -d --name fh --network $NET -p 18183:9999/udp "$IMG" sh -c "$SERVE" >/dev/null
+{ echo "$MAIN"; echo "allow [a] -> [fh]:9999/udp"; } | write_rules $RULES
+wait_rules fh
+yes_ "a -> fh:9999/udp" udp $A "$(ip4 fh)" 9999
+ip netns add dfwlan
+ip link add dfwlan0 type veth peer name eth0 netns dfwlan
+ip addr add 198.51.100.1/30 dev dfwlan0 && ip link set dfwlan0 up
+ip -n dfwlan addr add 198.51.100.2/30 dev eth0 && ip -n dfwlan link set eth0 up && ip -n dfwlan link set lo up
+ip -n dfwlan addr add "$(ip4 $A)/32" dev lo
+ip -n dfwlan route add default via 198.51.100.1
+RPF=$(sysctl -n net.ipv4.conf.all.rp_filter)
+sysctl -qw net.ipv4.conf.all.rp_filter=0 net.ipv4.conf.dfwlan0.rp_filter=0
+fh_drops() { nft list chain bridge fw from_host | sed -n 's/.*ip saddr @peers4 counter packets \([0-9]*\).*/\1/p'; }
+D1=$(fh_drops)
+docker exec fh sh -c "timeout 5 tcpdump -p -n -i eth0 -c1 'udp dst port 9999' >/tmp/fh 2>/dev/null" &
+sleep 1
+for _ in 1 2 3; do echo x | ip netns exec dfwlan socat -u - "UDP:$HOSTIP:18183,bind=$(ip4 $A)"; sleep 0.2; done
+wait
+D2=$(fh_drops)
+sysctl -qw net.ipv4.conf.all.rp_filter="$RPF"
+ip netns del dfwlan
+yes_ "from_host dropped the forged packets ($D1 -> $D2)" test "${D2:-0}" -gt "${D1:-0}"
+no_ "fh received a packet with a's address from outside" sh -c "docker exec fh grep -q 'UDP' /tmp/fh"
+echo "$MAIN" | write_rules $RULES
+docker rm -f fh >/dev/null
 
 say "dns: upstream DNS is opt-in"
 serve dn1 --dns "$UP"

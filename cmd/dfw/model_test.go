@@ -49,6 +49,89 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestMatchPorts(t *testing.T) {
+	mac1, _ := net.ParseMAC("02:42:0a:00:00:02")
+	mac2, _ := net.ParseMAC("02:42:0a:01:00:02")
+	const nsid = 5
+	var info docker.Container
+	info.NetworkSettings.Networks = map[string]docker.Endpoint{
+		"fw": {NetworkID: "n1", MacAddress: mac1.String(), IPAddress: "10.0.0.2",
+			GlobalIPv6Address: "fd00::2", GlobalIPv6PrefixLen: 64},
+		"other": {NetworkID: "n2", MacAddress: mac2.String(), IPAddress: "10.1.0.2"},
+	}
+	// eth0 (2) on fw's bridge (100) through veth 10, eth1 (3) on other's (101)
+	// through veth 11.
+	fixture := func() ([]netlink.Link, map[int]netlink.Link, map[string]int) {
+		inside := []netlink.Link{
+			{Index: 1, Name: "lo"},
+			{Index: 2, Kind: "veth", MAC: mac1, Peer: 10},
+			{Index: 3, Kind: "veth", MAC: mac2, Peer: 11},
+		}
+		byIndex := map[int]netlink.Link{
+			10: {Index: 10, Kind: "veth", Master: 100, PeerNetns: nsid, Peer: 2},
+			11: {Index: 11, Kind: "veth", Master: 101, PeerNetns: nsid, Peer: 3},
+		}
+		return inside, byIndex, map[string]int{"n1": 100, "n2": 101}
+	}
+	for _, tc := range []struct {
+		name  string
+		edit  func(inside []netlink.Link, byIndex map[int]netlink.Link, bridgeOf map[string]int)
+		fw    int // host veth found for fw, or 0
+		other int
+	}{
+		{"as Docker set it up", func([]netlink.Link, map[int]netlink.Link, map[string]int) {}, 10, 11},
+		{"MACs swapped inside", func(in []netlink.Link, _ map[int]netlink.Link, _ map[string]int) {
+			in[1].MAC, in[2].MAC = mac2, mac1
+		}, 0, 0},
+		{"host side on another bridge", func(_ []netlink.Link, h map[int]netlink.Link, _ map[string]int) {
+			l := h[10]
+			l.Master = 101
+			h[10] = l
+		}, 0, 11},
+		{"network's bridge unknown", func(_ []netlink.Link, _ map[int]netlink.Link, b map[string]int) {
+			delete(b, "n1")
+		}, 0, 11},
+		{"host side not attached", func(_ []netlink.Link, h map[int]netlink.Link, b map[string]int) {
+			l := h[10]
+			l.Master, b["n1"] = 0, 0
+			h[10] = l
+		}, 0, 11},
+		{"peer in another namespace", func(_ []netlink.Link, h map[int]netlink.Link, _ map[string]int) {
+			l := h[10]
+			l.PeerNetns = nsid + 1
+			h[10] = l
+		}, 0, 11},
+		{"host side's peer is another link", func(_ []netlink.Link, h map[int]netlink.Link, _ map[string]int) {
+			l := h[10]
+			l.Peer = 3
+			h[10] = l
+		}, 0, 11},
+		{"host side not a veth", func(_ []netlink.Link, h map[int]netlink.Link, _ map[string]int) {
+			l := h[10]
+			l.Kind = "dummy"
+			h[10] = l
+		}, 0, 11},
+		{"inside link not a veth", func(in []netlink.Link, _ map[int]netlink.Link, _ map[string]int) {
+			in[1].Kind = "macvlan"
+		}, 0, 11},
+	} {
+		inside, byIndex, bridgeOf := fixture()
+		tc.edit(inside, byIndex, bridgeOf)
+		ports := matchPorts(&info, []string{"fw", "other"}, nsid, inside, byIndex, bridgeOf)
+		if got := ports["fw"].Ifindex; got != tc.fw {
+			t.Errorf("%s: fw on veth %d, want %d", tc.name, got, tc.fw)
+		}
+		if got := ports["other"].Ifindex; got != tc.other {
+			t.Errorf("%s: other on veth %d, want %d", tc.name, got, tc.other)
+		}
+	}
+	inside, byIndex, bridgeOf := fixture()
+	p := matchPorts(&info, []string{"fw"}, nsid, inside, byIndex, bridgeOf)["fw"]
+	if p.IPv4.String() != "10.0.0.2" || p.IPv6.String() != "fd00::2" || p.Subnet6.String() != "fd00::/64" || p.MAC.String() != mac1.String() {
+		t.Errorf("fw port = %+v", p)
+	}
+}
+
 func TestBootRuleset(t *testing.T) {
 	dir := t.TempDir()
 	rulesPath, rulesDir = filepath.Join(dir, "rules"), filepath.Join(dir, "rules.d")

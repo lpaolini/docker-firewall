@@ -292,10 +292,9 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 	return c, nil
 }
 
-// findPorts finds the host side of the container's veth on each network, by
-// MAC, without entering its namespace: the host reads the container's links
-// through the namespace ID it already uses for the veth peers. The veth must
-// be on that network's bridge, since the container can change its MACs.
+// findPorts finds the host side of the container's veth on each network,
+// without entering its namespace: the host reads the container's links
+// through the namespace ID it already uses for the veth peers.
 func findPorts(info *docker.Container, networks []string, byIndex map[int]netlink.Link, bridgeOf map[string]int) (map[string]nft.Port, error) {
 	nsid, err := netlink.NsidOfPid(info.State.Pid)
 	if err != nil {
@@ -305,6 +304,14 @@ func findPorts(info *docker.Container, networks []string, byIndex map[int]netlin
 	if err != nil {
 		return nil, err
 	}
+	return matchPorts(info, networks, nsid, inside, byIndex, bridgeOf), nil
+}
+
+// matchPorts pairs each network with the container's link that has the MAC
+// Docker gave it there, and that link's veth peer on the host, known as
+// namespace nsid. The host side must be on that network's bridge, since the
+// container can change its MACs.
+func matchPorts(info *docker.Container, networks []string, nsid int, inside []netlink.Link, byIndex map[int]netlink.Link, bridgeOf map[string]int) map[string]nft.Port {
 	ports := map[string]nft.Port{}
 	for _, name := range networks {
 		ep := info.NetworkSettings.Networks[name]
@@ -330,7 +337,7 @@ func findPorts(info *docker.Container, networks []string, byIndex map[int]netlin
 			ports[name] = p
 		}
 	}
-	return ports, nil
+	return ports
 }
 
 // defaultDNS returns the servers containers without --dns use: like Docker,

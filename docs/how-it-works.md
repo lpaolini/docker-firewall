@@ -192,7 +192,8 @@ A single goroutine handles events one at a time:
    are used) and coalesces bursts into one reconcile.
 2. It reconciles fully at start, on reconnecting to Docker, on `SIGHUP` (sent
    by `dfw apply` through `systemctl reload`), when a bridge appears or
-   disappears, every 30 seconds, and 2 seconds after a failure.
+   disappears, when a host address (other than loopback or link-local) is
+   added or removed, every 30 seconds, and 2 seconds after a failure.
 3. A reconcile reads the containers on the filtered networks, finds their
    veths, resolves the rules, renders the whole table and applies it as one
    `nft -f` transaction (`add table; delete table; table {...}`). This is

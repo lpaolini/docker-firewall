@@ -122,6 +122,11 @@ func cmdRun() error {
 		err := netlink.WatchBridges(notify)
 		logf("error: bridge watch stopped: %v; new bridges stay blocked until the %v reconcile", err, reconcileEvery)
 	}()
+	go func() {
+		// A new host address belongs to host, not lan or internet.
+		err := netlink.WatchAddrs(notify)
+		logf("error: address watch stopped: %v; host address changes apply at the %v reconcile", err, reconcileEvery)
+	}()
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	go func() {
