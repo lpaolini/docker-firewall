@@ -39,6 +39,9 @@ func sample() Ruleset {
 			ID:    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
 			Ports: []Port{{Ifindex: 13, MAC: mac, IPv4: netip.MustParseAddr("10.201.250.9")}},
 		},
+	}, Peers: []netip.Addr{
+		netip.MustParseAddr("10.201.250.2"), netip.MustParseAddr("fd00:250::2"), netip.MustParseAddr("10.201.251.2"),
+		netip.MustParseAddr("10.201.250.9"), netip.MustParseAddr("10.201.250.3"), netip.MustParseAddr("fd00:250::3"),
 	}}
 }
 

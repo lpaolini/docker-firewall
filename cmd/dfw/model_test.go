@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -42,6 +43,9 @@ func TestClassify(t *testing.T) {
 	}
 	if w.bridges["fw"] != "br-aaaaaaaaaaaa" || drivers["d0"] != "bridge" {
 		t.Errorf("bridges = %v, drivers = %v", w.bridges, drivers)
+	}
+	if want := map[string]int{"d0": 1, "aaaaaaaaaaaa1234": 2, "bbbbbbbbbbbb1234": 3}; !maps.Equal(w.bridgeOf, want) {
+		t.Errorf("bridgeOf = %v, want %v", w.bridgeOf, want)
 	}
 }
 

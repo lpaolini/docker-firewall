@@ -38,6 +38,7 @@ type ctr struct {
 type world struct {
 	cfg       rules.Config
 	bridges   map[string]string // filtered network -> its bridge device, for those that exist
+	bridgeOf  map[string]int    // bridge network ID -> its bridge's index, for those that exist
 	open      []string
 	unlisted  []netlink.Link // bridges in open that Docker doesn't list
 	held      []string       // of those, the ones dfw run keeps blocked
@@ -116,6 +117,7 @@ func gather(ctx context.Context, dc *docker.Client, cfg rules.Config) (*world, e
 func (w *world) classify(nets []docker.Network) (fwIndex map[int]bool, drivers map[string]string) {
 	w.bridges, drivers = map[string]string{}, map[string]string{}
 	fw, listed := map[string]bool{}, map[string]bool{}
+	byName := map[string][]string{} // bridge device -> network IDs
 	for _, n := range nets {
 		drivers[n.ID] = n.Driver
 		filtered := slices.Contains(w.cfg.Networks, n.Name)
@@ -130,14 +132,20 @@ func (w *world) classify(nets []docker.Network) (fwIndex map[int]bool, drivers m
 		if b == "" && len(n.ID) >= 12 {
 			b = "br-" + n.ID[:12]
 		}
+		byName[b] = append(byName[b], n.ID)
 		if filtered {
 			w.bridges[n.Name], fw[b] = b, true
 		} else {
 			listed[b] = true
 		}
 	}
-	fwIndex = map[int]bool{}
+	fwIndex, w.bridgeOf = map[int]bool{}, map[string]int{}
 	for _, l := range w.links {
+		if l.Kind == "bridge" {
+			for _, id := range byName[l.Name] {
+				w.bridgeOf[id] = l.Index
+			}
+		}
 		switch {
 		case l.Kind != "bridge":
 		case fw[l.Name]:
@@ -241,7 +249,7 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 		}
 	}
 
-	ports, err := findPorts(info, append(slices.Clone(filtered), others...), w.byIndex)
+	ports, err := findPorts(info, append(slices.Clone(filtered), others...), w.byIndex, w.bridgeOf)
 	if err != nil {
 		c.errors = append(c.errors, "can't find its veths, so it stays blocked: "+err.Error())
 	}
@@ -286,8 +294,9 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 
 // findPorts finds the host side of the container's veth on each network, by
 // MAC, without entering its namespace: the host reads the container's links
-// through the namespace ID it already uses for the veth peers.
-func findPorts(info *docker.Container, networks []string, byIndex map[int]netlink.Link) (map[string]nft.Port, error) {
+// through the namespace ID it already uses for the veth peers. The veth must
+// be on that network's bridge, since the container can change its MACs.
+func findPorts(info *docker.Container, networks []string, byIndex map[int]netlink.Link, bridgeOf map[string]int) (map[string]nft.Port, error) {
 	nsid, err := netlink.NsidOfPid(info.State.Pid)
 	if err != nil {
 		return nil, err
@@ -308,7 +317,8 @@ func findPorts(info *docker.Container, networks []string, byIndex map[int]netlin
 				continue
 			}
 			h, ok := byIndex[l.Peer]
-			if !ok || h.Kind != "veth" || h.Master == 0 || h.PeerNetns != nsid || h.Peer != l.Index {
+			if !ok || h.Kind != "veth" || h.Master == 0 || h.Master != bridgeOf[ep.NetworkID] ||
+				h.PeerNetns != nsid || h.Peer != l.Index {
 				continue
 			}
 			p := nft.Port{Ifindex: h.Index, MAC: mac}
@@ -418,10 +428,11 @@ func hostAddrs() ([]netip.Addr, error) {
 // ruleset resolves every container's rules into table contents.
 func (w *world) ruleset() nft.Ruleset {
 	var peers []rules.Peer
+	rs := nft.Ruleset{Open: w.open}
 	for _, c := range w.ctrs {
 		peers = append(peers, rules.Peer{Name: c.name, Service: c.service, Addrs: c.addrs})
+		rs.Peers = append(rs.Peers, c.addrs...)
 	}
-	rs := nft.Ruleset{Open: w.open}
 	for _, c := range w.ctrs {
 		rs.Blocked = append(rs.Blocked, c.blocked...)
 		if len(c.ports) == 0 {

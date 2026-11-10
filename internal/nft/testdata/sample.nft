@@ -6,6 +6,18 @@ table bridge fw {
 		elements = { "docker0",
 			     "br-0123456789ab" }
 	}
+	set peers4 {
+		type ipv4_addr
+		flags interval
+		elements = { 10.201.250.2/31,
+			     10.201.250.9,
+			     10.201.251.2 }
+	}
+	set peers6 {
+		type ipv6_addr
+		flags interval
+		elements = { fd00:250::2/127 }
+	}
 	map out_by_port {
 		type iface_index : verdict
 		elements = { 11 : jump c0123456789abcdef_out,
@@ -29,6 +41,11 @@ table bridge fw {
 		type filter hook postrouting priority -150; policy accept;
 		oif vmap @in_by_port
 		oifname "veth*" meta obrname != @open_bridges counter drop
+	}
+	chain from_host {
+		type filter hook output priority -150; policy accept;
+		oifname "veth*" ip saddr @peers4 counter drop
+		oifname "veth*" ip6 saddr @peers6 counter drop
 	}
 	set c0123456789abcdef_mac {
 		type iface_index . ether_addr

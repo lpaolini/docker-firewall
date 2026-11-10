@@ -50,11 +50,14 @@ The other commands are `dfw check [FILE]` (read-only review), `dfw enable`,
 Every frame from a container enters its bridge on the container's veth, and
 every frame to it leaves on that veth. Two base chains at priority −150,
 after bridge conntrack (−200) and before `br_netfilter` (0), therefore see
-all container traffic:
+all container traffic. A third, on the output hook, checks the frames the
+host itself sends into a bridge:
 
 ```
 table bridge fw {
   set open_bridges { type ifname }          # bridges dfw leaves alone
+  set peers4 { type ipv4_addr; flags interval; }  # filtered containers'
+  set peers6 { type ipv6_addr; flags interval; }  # addresses
   map out_by_port { type iface_index : verdict }
   map in_by_port  { type iface_index : verdict }
 
@@ -68,6 +71,11 @@ table bridge fw {
     oif vmap @in_by_port
     oifname "veth*" meta obrname != @open_bridges counter drop
   }
+  chain from_host {
+    type filter hook output priority -150; policy accept;
+    oifname "veth*" ip saddr @peers4 counter drop
+    oifname "veth*" ip6 saddr @peers6 counter drop
+  }
 }
 ```
 
@@ -80,6 +88,14 @@ beyond the host.
 The maps are keyed by interface index, not name, so a restarted container
 gets a new key and can't inherit old rules. Veths of a filtered container on
 an unfiltered network map to `drop`.
+
+Inbound rules trust the source address, which `c<id>_out` pins to the
+sender's own for every frame a container sends. A frame the host routes into
+a bridge, such as one to a published port, carries whatever source its sender
+chose. Containers on a filtered network reach each other through the bridge,
+never through the host, so `from_host` drops any frame the host sends into a
+veth from a filtered container's address. Otherwise a LAN host could send
+one-way UDP to a published port as a peer the rules trust.
 
 Because the chains run before Docker's DNAT, outbound rules see the address
 the container dials. Inbound rules see the client as it arrives: external
@@ -111,7 +127,10 @@ current rules; otherwise every bridge stays blocked until `dfw run` starts.
 
 For each container on a filtered network, `dfw run` creates chains
 `c<id>_out` and `c<id>_in` with their sets, and points the container's veths
-on filtered networks at them (one veth per network, same chains).
+on filtered networks at them (one veth per network, same chains). dfw finds
+each veth by the MAC Docker gave the container on that network, and takes it
+only if it is on that network's bridge, since the container may change its
+MACs.
 
 `c<id>_out`, in order:
 

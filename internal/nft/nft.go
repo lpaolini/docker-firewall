@@ -212,6 +212,12 @@ type Ruleset struct {
 	// containers on other networks.
 	Blocked    []int
 	Containers []Container
+	// Peers lists the addresses of every container on the filtered networks.
+	// A container's frames reach its peers through the bridge, never through
+	// the host, so a frame the host sends into a veth from one of these
+	// addresses is spoofed: from_host drops it. Otherwise a LAN host could
+	// send to a published port as a peer the inbound rules trust.
+	Peers []netip.Addr
 }
 
 // ValidIfname reports whether name is a safe interface name to write into
@@ -241,6 +247,28 @@ func portMap(t Ruleset, dir string) []string {
 	return els
 }
 
+// peerSets returns the sets from_host checks sources against.
+func peerSets(t Ruleset) []set {
+	var rs []rules.Range
+	for _, a := range t.Peers {
+		if a.IsValid() {
+			rs = append(rs, rules.AddrRange(a.Unmap()))
+		}
+	}
+	v4, v6 := rules.Split(rules.Normalize(rs))
+	return []set{
+		{name: "peers4", typ: "ipv4_addr", interval: true, elems: strs(v4, "")},
+		{name: "peers6", typ: "ipv6_addr", interval: true, elems: strs(v6, "")},
+	}
+}
+
+// fromHost is the chain for frames the host sends into a bridge: routed,
+// such as to a published port, or its own.
+var fromHost = []string{
+	`oifname "veth*" ip saddr @peers4 counter drop`,
+	`oifname "veth*" ip6 saddr @peers6 counter drop`,
+}
+
 func openBridges(t Ruleset) []string {
 	var els []string
 	for _, b := range t.Open {
@@ -261,6 +289,9 @@ func Render(t Ruleset) string {
 	w("\tset open_bridges {\n\t\ttype ifname\n")
 	writeElems(&b, openBridges(t))
 	w("\t}\n")
+	for _, s := range peerSets(t) {
+		writeSet(&b, s)
+	}
 	for _, bc := range baseChains {
 		w("\tmap %s_by_port {\n\t\ttype iface_index : verdict\n", bc.dir)
 		writeElems(&b, portMap(t, bc.dir))
@@ -271,14 +302,14 @@ func Render(t Ruleset) string {
 		w("\t\t%s vmap @%s_by_port\n", bc.match, bc.dir)
 		w("\t\t%sname \"veth*\" meta %cbrname != @open_bridges counter drop\n\t}\n", bc.match, bc.match[0])
 	}
+	w("\tchain from_host {\n\t\ttype filter hook output priority %d; policy accept;\n", Priority)
+	for _, r := range fromHost {
+		w("\t\t%s\n", r)
+	}
+	w("\t}\n")
 	for _, c := range t.Containers {
 		for _, s := range sets(c) {
-			w("\tset %s {\n\t\ttype %s\n", s.name, s.typ)
-			if s.interval {
-				w("\t\tflags interval\n")
-			}
-			writeElems(&b, s.elems)
-			w("\t}\n")
+			writeSet(&b, s)
 		}
 		out, in := chains(c)
 		for _, ch := range []struct {
@@ -294,6 +325,15 @@ func Render(t Ruleset) string {
 	}
 	w("}\n")
 	return b.String()
+}
+
+func writeSet(b *strings.Builder, s set) {
+	fmt.Fprintf(b, "\tset %s {\n\t\ttype %s\n", s.name, s.typ)
+	if s.interval {
+		b.WriteString("\t\tflags interval\n")
+	}
+	writeElems(b, s.elems)
+	b.WriteString("\t}\n")
 }
 
 func writeElems(b *strings.Builder, els []string) {
@@ -511,17 +551,23 @@ func Intended(t Ruleset) *State {
 		slices.Sort(els)
 		st.Sets[bc.dir+"_by_port"] = append([]string{}, els...)
 	}
+	st.Chains["from_host"] = Chain{Hook: "output", Prio: Priority, Policy: "accept", Rules: len(fromHost)}
+	addSets(st, peerSets(t))
 	for _, c := range t.Containers {
-		for _, s := range sets(c) {
-			els := append([]string{}, s.elems...)
-			slices.Sort(els)
-			st.Sets[s.name] = els
-		}
+		addSets(st, sets(c))
 		out, in := chains(c)
 		st.Chains[Key(c.ID)+"_out"] = Chain{Rules: len(out)}
 		st.Chains[Key(c.ID)+"_in"] = Chain{Rules: len(in)}
 	}
 	return st
+}
+
+func addSets(st *State, ss []set) {
+	for _, s := range ss {
+		els := append([]string{}, s.elems...)
+		slices.Sort(els)
+		st.Sets[s.name] = els
+	}
 }
 
 // Diff describes how have differs from want, ignoring the rule fingerprint.
