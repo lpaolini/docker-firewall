@@ -377,7 +377,9 @@ ip netns add dfwlan
 ip link add dfwlan0 type veth peer name eth0 netns dfwlan
 # As a host address, 198.51.100.1 leaves internet ([b] -> internet) at once,
 # not at the 30 s reconcile.
-hole() { nft list table bridge fw | grep -qF 198.51.100.2-; }
+# No pipe: grep -q would stop reading the table early, and with pipefail
+# nft's SIGPIPE turns a match into a failure.
+hole() { [[ $(nft list table bridge fw) == *198.51.100.2-* ]]; }
 hole && bad "internet has a hole at 198.51.100.1 before the host has it"
 ip addr add 198.51.100.1/30 dev dfwlan0 && ip link set dfwlan0 up
 for _ in 1 2 3 4; do sleep 0.5; hole && break; done
