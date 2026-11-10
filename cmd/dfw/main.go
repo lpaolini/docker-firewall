@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -266,7 +267,13 @@ func cmdCheck(file string) (int, []rules.File, error) {
 	for _, c := range w.ctrs {
 		fmt.Printf("\n%s\n", c.name)
 		for _, p := range c.ports {
-			fmt.Printf("  port   index %d  %s  %v %v\n", p.Ifindex, p.MAC, p.IPv4, p.IPv6)
+			line := fmt.Sprintf("  port   index %d  %s ", p.Ifindex, p.MAC)
+			for _, a := range []netip.Addr{p.IPv4, p.IPv6} {
+				if a.IsValid() {
+					line += " " + a.String()
+				}
+			}
+			fmt.Println(line)
 		}
 		show := func(dir string, es []rules.Entry, a rules.Allow) {
 			if len(es) == 0 {
