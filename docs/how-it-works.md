@@ -213,7 +213,10 @@ A single goroutine handles events one at a time:
 7. It subscribes to nftables change notifications (`NFNLGRP_NFTABLES`). If
    the table changes or disappears outside dfw, it restores it within a
    second (repairs are at most one per second), and the 30-second reconcile
-   checks it too.
+   checks it too. Connections may have started while the table was gone or
+   changed, and would pass as established, so after a repair it cuts every
+   container's connections, and allowed ones reconnect. It does the same if
+   it starts and finds no table.
 
 `nft` is called by absolute path with the ruleset on stdin. The ruleset holds
 only values already parsed into typed form (addresses, prefixes, integers,

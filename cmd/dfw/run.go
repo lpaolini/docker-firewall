@@ -77,7 +77,9 @@ func cmdRun() error {
 	st, err := nft.List(ifnames(links))
 	switch {
 	case errors.Is(err, nft.ErrNoTable):
+		// Nothing was filtered meanwhile: cut whatever started then.
 		logf("warning: the table is missing; dfw init should have created it. Creating it now with every container blocked")
+		r.cutAll = true
 		if err := nft.Apply(nft.Render(bootRuleset())); err != nil {
 			return err
 		}
@@ -387,8 +389,10 @@ func (r *runner) check() {
 	why := ""
 	switch {
 	case errors.Is(err, nft.ErrNoTable) && r.text == "":
-		// No rules computed yet (no rules or Docker unreachable).
+		// No rules computed yet (no rules or Docker unreachable). Connections
+		// may have started while the table was gone: the first apply cuts them.
 		logf("warning: the table was deleted; restoring it with every container blocked until dfw can compute the rules")
+		r.cutAll = true
 		boot := bootRuleset()
 		if _, err := r.apply(nft.Render(boot), boot); err != nil {
 			logf("error: restoring the table failed: %v", err)
@@ -413,8 +417,30 @@ func (r *runner) check() {
 		return
 	}
 	logf("warning: table changed outside dfw (%s); restoring it", why)
-	if _, err := r.apply(r.text, r.rs); err != nil {
+	// While the table was gone or changed, connections the rules don't allow
+	// may have started, and once it is back they pass as established: cut
+	// every container's, and allowed ones reconnect. Not when the last apply
+	// didn't read back as intended, since the difference may then be dfw's
+	// own and every check would cut everything. Until the cuts are done, the
+	// rules don't count as confirmed, so a restart in between cuts them.
+	if r.ok || errors.Is(err, nft.ErrNoTable) {
+		r.cutAll = true
+		if err := os.Remove(appliedFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logf("error: can't clear the confirmation: %v", err)
+		}
+	}
+	loaded, err := r.apply(r.text, r.rs)
+	if err != nil {
 		logf("error: restoring the table failed: %v", err)
+	}
+	if loaded && r.cutAll {
+		for _, c := range r.applied {
+			for _, a := range portAddrs(c) {
+				r.cut(a)
+			}
+		}
+		r.cutAll = false
+		r.markApplied()
 	}
 }
 

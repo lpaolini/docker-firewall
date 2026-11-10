@@ -501,6 +501,20 @@ no_ "b -> a still blocked" tcp $B "$(ip4 $A)" 5432
 yes_ "dfw run was not restarted" test "$(systemctl show -p MainPID --value dfw)" = "$PID1"
 yes_ "repair logged" logged "restoring it"
 
+say "a connection opened while the table was gone is cut once it is back"
+# b -> a is not allowed. b keeps trying; the second flush, within a second of
+# the first repair, is repaired only after a second, so b gets through.
+docker exec -d $B sh -c "until (while sleep 0.2; do echo tick; done | socat - TCP:$(ip4 $A):5432,connect-timeout=0.05 >>/tmp/gap 2>/dev/null); do :; done"
+sleep 1
+nft flush ruleset
+sleep 0.3
+nft flush ruleset
+sleep 3
+yes_ "b reached a while the table was gone" sh -c "docker exec $B grep -q tick /tmp/gap"
+C1=$(docker exec $B grep -c tick /tmp/gap 2>/dev/null); sleep 2; C2=$(docker exec $B grep -c tick /tmp/gap 2>/dev/null)
+no_ "b -> a kept flowing after the repair ($C1 -> $C2 lines)" sh -c "[ '$C2' -gt '$C1' ]"
+yes_ "a -> b allowed again after the cut" tcp $A "$(ip4 $B)" 5432
+
 say "Docker restart without dfw run: the boot table"
 docker compose -p $P -f "$DIR/compose.yaml" down -t 0 >/dev/null 2>&1
 systemctl stop dfw
