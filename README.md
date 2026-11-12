@@ -36,7 +36,7 @@ From the signed APT repository:
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://lpaolini.github.io/apt/public.key | sudo gpg --dearmor -o /etc/apt/keyrings/lpaolini.gpg
-echo "deb [signed-by=/etc/apt/keyrings/lpaolini.gpg] https://lpaolini.github.io/apt stable main" | sudo tee /etc/apt/sources.list.d/lpaolini.list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/lpaolini.gpg] https://lpaolini.github.io/apt stable main" | sudo tee /etc/apt/sources.list.d/lpaolini.list
 sudo apt update
 sudo apt install dfw
 ```
@@ -57,7 +57,7 @@ Every push to the `dev` branch is published to the repository's `dev`
 channel. To use it on a test host:
 
 ```sh
-echo "deb [signed-by=/etc/apt/keyrings/lpaolini.gpg] https://lpaolini.github.io/apt dev main" | sudo tee /etc/apt/sources.list.d/lpaolini-dev.list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/lpaolini.gpg] https://lpaolini.github.io/apt dev main" | sudo tee /etc/apt/sources.list.d/lpaolini-dev.list
 sudo apt update && sudo apt upgrade
 ```
 
