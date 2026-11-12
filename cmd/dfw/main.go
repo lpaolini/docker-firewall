@@ -304,11 +304,11 @@ func cmdCheck(file string, note bool) (int, []rules.File, error) {
 				continue
 			}
 			if first, ok := shown[c]; ok {
-				fmt.Printf("\n  %s: see network %s\n", c.name, first)
+				fmt.Printf("\n  [%s]: see network %s\n", c.name, first)
 				continue
 			}
 			shown[c] = n
-			fmt.Printf("\n  %s\n", c.name)
+			fmt.Printf("\n  [%s]\n", c.name)
 			for _, p := range c.ports {
 				line := fmt.Sprintf("    port   %s  %s ", w.byIndex[p.Ifindex].Name, p.MAC)
 				for _, a := range []netip.Addr{p.IPv4, p.IPv6} {

@@ -173,7 +173,7 @@ printf 'network %s\nallow [a] -> [nobody]\n' "$NET" >"$DIR/candidate"
 dfw check "$DIR/candidate" >"$DIR/check" 2>&1
 yes_ "check FILE checks a candidate file" grep -qF "[nobody] matches no running container" "$DIR/check"
 dfw check >"$DIR/check" 2>&1
-yes_ "check lists the containers on the network, and only those" sh -c "grep -q '^  acc-a-1' $DIR/check && grep -q '^  acc-n-1' $DIR/check && ! grep -q '^  acc-f-1' $DIR/check"
+yes_ "check lists the containers on the network, and only those" sh -c "grep -q '^  \[acc-a-1\]' $DIR/check && grep -q '^  \[acc-n-1\]' $DIR/check && ! grep -q '^  \[acc-f-1\]' $DIR/check"
 yes_ "check flags the unmentioned container" grep -q "no rule mentions it" "$DIR/check"
 yes_ "check flags the container on two networks" grep -q "is also on network $FREE" "$DIR/check"
 yes_ "dfw enable" dfw enable
