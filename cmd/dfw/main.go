@@ -75,7 +75,7 @@ func main() {
 		err = cmdInit()
 	case "check":
 		var errs int
-		if errs, _, err = cmdCheck(fs.Arg(0)); err == nil && errs > 0 {
+		if errs, _, err = cmdCheck(fs.Arg(0), true); err == nil && errs > 0 {
 			os.Exit(1)
 		}
 	case "enable":
@@ -222,14 +222,14 @@ func initLive() error {
 
 // cmdCheck prints the rules and what each running container on the filtered
 // networks would get. It returns the number of errors in the rules and the
-// files it read.
-func cmdCheck(file string) (int, []rules.File, error) {
+// files it read. With note, it says if the rules differ from the applied ones.
+func cmdCheck(file string, note bool) (int, []rules.File, error) {
 	files, err := readRules(file)
 	if err != nil {
 		return 0, nil, err
 	}
 	cfg := rules.ParseConfig(files)
-	if file == "" && serviceActive() && !sameAsActive(files) {
+	if note && file == "" && serviceActive() && !sameAsActive(files) {
 		fmt.Println("note: the rules differ from those applied; run dfw apply to apply them")
 	}
 	for _, e := range cfg.Errors {
@@ -383,7 +383,7 @@ func kernelProblem() (string, error) {
 // checkRules prints what check prints and returns the rules being edited if they
 // can be applied: exactly the files it checked, not a later read.
 func checkRules() ([]rules.File, error) {
-	errs, files, err := cmdCheck("")
+	errs, files, err := cmdCheck("", false)
 	if err != nil {
 		return nil, err
 	}
