@@ -34,8 +34,9 @@ On a running system, editing the rules has no effect until
 .B enable
 Cut over: load the base table and every container's rules in one transaction,
 cut the containers' tracked connections, write the docker.service drop-in and
-start dfw.service. Refuses if the rules have errors, or if dfw is already
-running: use
+start dfw.service. Refuses if the rules have errors, if the kernel lacks a
+module dfw needs (nft_meta_bridge, nf_conntrack_bridge), or if dfw is
+already running: use
 .BR apply .
 .TP
 .B disable

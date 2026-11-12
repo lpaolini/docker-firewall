@@ -111,6 +111,46 @@ func TestApplyAndVerify(t *testing.T) {
 	}
 }
 
+// TestMissingErrors reads nft's errors as a Raspberry Pi OS 6.18 kernel gives
+// them, from a stand-in nft, and treats any other failure as an error.
+func TestMissingErrors(t *testing.T) {
+	defer func(p string) { Path = p }(Path)
+	fake := func(script string) {
+		Path = t.TempDir() + "/nft"
+		if err := os.WriteFile(Path, []byte("#!/bin/sh\nin=$(cat)\n"+script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake(`case "$in" in
+*ibrname*) echo 'Error: Could not process rule: Operation not supported' >&2; exit 1;;
+*"ct state"*) echo 'Error: Could not process rule: Protocol error' >&2; exit 1;;
+esac
+`)
+	miss, err := Missing()
+	if err != nil || len(miss) != 2 || miss[0].Name != "nft_meta_bridge" || miss[1].Name != "nf_conntrack_bridge" {
+		t.Fatalf("got %v, %v; want both modules missing", miss, err)
+	}
+	fake("echo 'Error: Could not process rule: Operation not permitted' >&2; exit 1\n")
+	if miss, err := Missing(); err == nil {
+		t.Fatalf("got %v and no error for a failure that isn't a missing module", miss)
+	}
+}
+
+// TestMissing probes the kernel, which must have every module (Debian's and
+// Ubuntu's do). It runs with the other kernel tests.
+func TestMissing(t *testing.T) {
+	if os.Getenv("DFW_TEST_APPLY") != "1" {
+		t.Skip("set DFW_TEST_APPLY=1 to probe the kernel")
+	}
+	miss, err := Missing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(miss) > 0 {
+		t.Fatalf("kernel lacks %v", miss)
+	}
+}
+
 func hostIfnames(t *testing.T) map[string]int {
 	ifs, err := net.Interfaces()
 	if err != nil {

@@ -374,6 +374,35 @@ func Delete() error {
 	return err
 }
 
+// Module is a kernel module the table needs that some kernels are built
+// without (Raspberry Pi OS's, for one).
+type Module struct {
+	Name, Config string
+	probe, err   string // a rule that needs it, and nft's error without it
+}
+
+var modules = []Module{
+	{"nft_meta_bridge", "CONFIG_NFT_BRIDGE_META", `meta ibrname "x"`, "Operation not supported"},
+	{"nf_conntrack_bridge", "CONFIG_NF_CONNTRACK_BRIDGE", "ct state new", "Protocol error"},
+}
+
+// Missing returns the modules the kernel lacks. nft -c has the kernel check a
+// rule that needs each, then discards it, so nothing changes.
+func Missing() ([]Module, error) {
+	var miss []Module
+	for _, m := range modules {
+		_, err := run(fmt.Sprintf("table %s dfw_probe { chain c { %s accept; }; }\n", Family, m.probe), "-c", "-f", "-")
+		switch {
+		case err == nil:
+		case strings.Contains(err.Error(), m.err):
+			miss = append(miss, m)
+		default:
+			return nil, err
+		}
+	}
+	return miss, nil
+}
+
 // State is the table as the kernel holds it.
 type State struct {
 	Chains map[string]Chain

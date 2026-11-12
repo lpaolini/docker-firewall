@@ -20,7 +20,8 @@ To run:
 - Debian 13 (trixie), amd64 or arm64.
 - Docker from Debian (`docker.io`) or from Docker (`docker-ce`). Filtered
   networks must use the bridge driver.
-- A kernel with `CONFIG_NF_CONNTRACK_BRIDGE`.
+- A kernel with `CONFIG_NF_CONNTRACK_BRIDGE` and `CONFIG_NFT_BRIDGE_META`
+  (Debian's has both).
 - `nftables` and `conntrack`, installed as package dependencies.
 
 To build:
@@ -136,14 +137,16 @@ no rule mentions, so review first:
 1. Create the networks and attach the containers.
 2. Write `/etc/dfw/rules` (the installed file has commented examples). Check
    a draft with `sudo dfw check FILE`.
-3. Run `sudo dfw check`. It lists rule errors, each container with its rules,
-   names that match no container, containers also on unfiltered networks,
-   and bridges it will block because a filtered network doesn't exist yet.
-4. Run `sudo dfw enable`. It refuses rules with errors. Otherwise it loads
-   the table with every container's rules in one transaction, cuts tracked
-   connections so only allowed ones resume (a brief interruption), installs a
-   `docker.service` drop-in that loads the base table before Docker starts,
-   and starts `dfw.service`.
+3. Run `sudo dfw check`. It lists rule errors, kernel modules dfw needs but
+   can't find, each container with its rules, names that match no
+   container, containers also on unfiltered networks, and bridges it will
+   block because a filtered network doesn't exist yet.
+4. Run `sudo dfw enable`. It refuses rules with errors, or a kernel without
+   the modules dfw needs. Otherwise it loads the table with every
+   container's rules in one transaction, cuts tracked connections so only
+   allowed ones resume (a brief interruption), installs a `docker.service`
+   drop-in that loads the base table before Docker starts, and starts
+   `dfw.service`.
 
 From then on, edit the files and run `sudo dfw apply`; `dfw enable` refuses
 while dfw is running. `sudo dfw disable`

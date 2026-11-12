@@ -260,9 +260,10 @@ systemd's other sandboxing options.
 ## Enabling and disabling
 
 `dfw enable` refuses if `dfw.service` is already running (that is
-`dfw apply`'s job) or if the rules have errors. Otherwise it saves them as
-the active rules, loads the base
-table and every container's rules in one transaction, then deletes the
+`dfw apply`'s job), if the rules have errors, or if the kernel lacks
+`nft_meta_bridge` or `nf_conntrack_bridge`, which it learns from `nft -c`
+(the kernel checks a rule that needs each, then discards it). Otherwise it
+saves them as the active rules, loads the base table and every container's rules in one transaction, then deletes the
 tracked connections of every filtered container, so forbidden ones are cut
 and allowed ones reconnect. It then writes the `docker.service` drop-in and enables and starts
 `dfw.service`.

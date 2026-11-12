@@ -236,6 +236,13 @@ func cmdCheck(file string) (int, []rules.File, error) {
 	if len(cfg.Networks) == 0 {
 		return len(cfg.Errors), files, nil
 	}
+	p, err := kernelProblem()
+	if err != nil {
+		return 0, nil, err
+	}
+	if p != "" {
+		fmt.Printf("ERROR %s\n", p)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	dc := docker.New(dockerSock)
@@ -335,6 +342,19 @@ func short(rs []rules.Range) string {
 	return strings.Join(s, " ")
 }
 
+// kernelProblem names the modules dfw needs that the kernel lacks, if any.
+func kernelProblem() (string, error) {
+	miss, err := nft.Missing()
+	if err != nil || len(miss) == 0 {
+		return "", err
+	}
+	var s []string
+	for _, m := range miss {
+		s = append(s, m.Name+" ("+m.Config+")")
+	}
+	return "the kernel lacks " + strings.Join(s, " and ") + ", which dfw needs; Raspberry Pi OS kernels are built without them", nil
+}
+
 // checkRules prints what check prints and returns the rules being edited if they
 // can be applied: exactly the files it checked, not a later read.
 func checkRules() ([]rules.File, error) {
@@ -351,6 +371,13 @@ func checkRules() ([]rules.File, error) {
 func cmdEnable() error {
 	if serviceActive() {
 		return errors.New("dfw is already enabled; use dfw apply to apply edited rules")
+	}
+	p, err := kernelProblem()
+	if err != nil {
+		return err
+	}
+	if p != "" {
+		return errors.New(p + "; nothing was changed")
 	}
 	files, err := checkRules()
 	if err != nil {
