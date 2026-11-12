@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -253,13 +255,6 @@ func cmdCheck(file string) (int, []rules.File, error) {
 	if v, err := dc.Version(ctx); err == nil {
 		checkDockerVersion(v.Version)
 	}
-	for _, n := range cfg.Networks {
-		if b, ok := w.bridges[n]; ok {
-			fmt.Printf("network %s (bridge %s)\n", n, b)
-		} else {
-			fmt.Printf("warning: network %s doesn't exist; its containers will be filtered once it does\n", n)
-		}
-	}
 	// As dfw enable would judge them; a running dfw keeps open those it
 	// already opened.
 	w.holdUnlisted(nil)
@@ -267,48 +262,70 @@ func cmdCheck(file string) (int, []rules.File, error) {
 		fmt.Printf("warning: bridge %s, which Docker doesn't list, is blocked until every filtered network exists, since it may be one's\n", b)
 	}
 
-	model := map[string]nft.Container{}
-	for _, c := range w.ruleset().Containers {
-		model[c.ID] = c
-	}
+	// One line per peer, its column as wide as the longest in the output.
+	width := 0
 	for _, c := range w.ctrs {
-		fmt.Printf("\n%s\n", c.name)
-		for _, p := range c.ports {
-			line := fmt.Sprintf("  port   index %d  %s ", p.Ifindex, p.MAC)
-			for _, a := range []netip.Addr{p.IPv4, p.IPv6} {
-				if a.IsValid() {
-					line += " " + a.String()
-				}
-			}
-			fmt.Println(line)
-		}
-		show := func(dir string, es []rules.Entry, a rules.Allow) {
-			if len(es) == 0 {
-				return
-			}
-			var s []string
+		for _, es := range [][]rules.Entry{c.in, c.out} {
 			for _, e := range es {
-				s = append(s, e.String())
-			}
-			fmt.Printf("  %-6s %s\n", dir, strings.Join(s, ", "))
-			if len(a.Any) > 0 {
-				fmt.Printf("         any protocol: %s\n", short(a.Any))
-			}
-			for k, rs := range a.Ports {
-				fmt.Printf("         %s/%d: %s\n", rules.ProtoName(k.Proto), k.Port, short(rs))
-			}
-			if len(a.ICMP) > 0 {
-				fmt.Printf("         icmp: %s\n", short(a.ICMP))
+				peer, _ := peerPort(e)
+				width = max(width, len(peer))
 			}
 		}
-		m := model[c.info.ID]
-		show("in", c.in, m.In)
-		show("out", c.out, m.Out)
-		for _, e := range c.errors {
-			fmt.Printf("  ERROR   %s\n", e)
+	}
+	show := func(dir string, es []rules.Entry) {
+		var peers []string
+		ports := map[string][]string{}
+		for _, e := range es {
+			peer, port := peerPort(e)
+			if _, ok := ports[peer]; !ok {
+				peers = append(peers, peer)
+			}
+			if !slices.Contains(ports[peer], port) {
+				ports[peer] = append(ports[peer], port)
+			}
 		}
-		for _, e := range c.warnings {
-			fmt.Printf("  warning %s\n", e)
+		for _, peer := range peers {
+			fmt.Printf("    %-6s %-*s  %s\n", dir, width, peer, strings.Join(ports[peer], ", "))
+			dir = ""
+		}
+	}
+	shown := map[*ctr]string{} // the network each container is shown under
+	for i, n := range cfg.Networks {
+		if i > 0 {
+			fmt.Println()
+		}
+		if b, ok := w.bridges[n]; ok {
+			fmt.Printf("network %s (bridge %s)\n", n, b)
+		} else {
+			fmt.Printf("warning: network %s doesn't exist; its containers will be filtered once it does\n", n)
+		}
+		for _, c := range w.ctrs {
+			if _, on := c.info.NetworkSettings.Networks[n]; !on {
+				continue
+			}
+			if first, ok := shown[c]; ok {
+				fmt.Printf("\n  %s: see network %s\n", c.name, first)
+				continue
+			}
+			shown[c] = n
+			fmt.Printf("\n  %s\n", c.name)
+			for _, p := range c.ports {
+				line := fmt.Sprintf("    port   %s  %s ", w.byIndex[p.Ifindex].Name, p.MAC)
+				for _, a := range []netip.Addr{p.IPv4, p.IPv6} {
+					if a.IsValid() {
+						line += " " + a.String()
+					}
+				}
+				fmt.Println(line)
+			}
+			show("in", c.in)
+			show("out", c.out)
+			for _, e := range c.errors {
+				fmt.Printf("    ERROR   %s\n", e)
+			}
+			for _, e := range c.warnings {
+				fmt.Printf("    warning %s\n", e)
+			}
 		}
 	}
 	for _, p := range w.problems {
@@ -326,20 +343,28 @@ func cmdCheck(file string) (int, []rules.File, error) {
 			fmt.Printf("  %s (index %d)\n", l.Name, l.Index)
 		}
 	}
-	fmt.Printf("\n%d containers on networks %s, %d errors in the rules\n", len(w.ctrs), strings.Join(cfg.Networks, ", "), len(cfg.Errors))
+	fmt.Printf("\n%d containers, %d errors in the rules\n", len(w.ctrs), len(cfg.Errors))
 	return len(cfg.Errors), files, nil
 }
 
-func short(rs []rules.Range) string {
-	var s []string
-	for i, r := range rs {
-		if i == 8 {
-			s = append(s, fmt.Sprintf("... (%d ranges)", len(rs)))
-			break
+// peerPort splits an entry into the other end of the connection and the
+// port it goes to, which is always the receiver's.
+func peerPort(e rules.Entry) (peer, port string) {
+	switch {
+	case e.IsICMP():
+		port = "icmp"
+	case e.Zone == rules.ZoneDNS:
+		port = "53"
+	case e.Port == 0:
+		port = "any"
+	default:
+		port = strconv.Itoa(int(e.Port))
+		if len(e.Protos) == 1 {
+			port += "/" + rules.ProtoName(e.Protos[0])
 		}
-		s = append(s, r.String())
 	}
-	return strings.Join(s, " ")
+	e.Port, e.Protos = 0, nil
+	return e.String(), port
 }
 
 // kernelProblem names the modules dfw needs that the kernel lacks, if any.

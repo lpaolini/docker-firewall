@@ -317,3 +317,22 @@ func TestLostSince(t *testing.T) {
 		t.Errorf("a container new to the table has lost nothing")
 	}
 }
+
+func TestPeerPort(t *testing.T) {
+	es, err := rules.Parse("10.118.5.0/24:icmp, 10.118.5.0/24:554, [2001:db8::1]:443/tcp, dns, internet, [db]:5432/udp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][2]string{
+		{"10.118.5.0/24", "icmp"}, {"10.118.5.0/24", "554"}, {"2001:db8::1", "443/tcp"},
+		{"dns", "53"}, {"internet", "any"}, {"[db]", "5432/udp"},
+	}
+	if len(es) != len(want) {
+		t.Fatalf("parsed %d entries, want %d", len(es), len(want))
+	}
+	for i, e := range es {
+		if peer, port := peerPort(e); peer != want[i][0] || port != want[i][1] {
+			t.Errorf("peerPort(%s) = %s %s, want %s %s", e, peer, port, want[i][0], want[i][1])
+		}
+	}
+}
