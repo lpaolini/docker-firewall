@@ -45,7 +45,7 @@ Or from a [GitHub release](https://github.com/lpaolini/docker-firewall/releases)
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-sudo apt install ./dfw_0.1.1_amd64.deb
+sudo apt install ./dfw_0.1.2_amd64.deb
 ```
 
 Installing changes no traffic, even after a reboot, until you run
@@ -64,7 +64,7 @@ sudo apt update && sudo apt upgrade
 Versions look like `0.1.0+dev5.gabc1234`: 5 commits after `v0.1.0`, so newer
 than that release and older than the next. To return to stable, delete
 `lpaolini-dev.list`, run `sudo apt update`, and install the stable version
-explicitly, for example `sudo apt install dfw=0.1.1` (apt never downgrades
+explicitly, for example `sudo apt install dfw=0.1.2` (apt never downgrades
 on its own).
 
 ## Rules

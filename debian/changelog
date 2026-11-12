@@ -1,3 +1,13 @@
+dfw (0.1.2) unstable; urgency=medium
+
+  * dfw enable refuses to run on a kernel without nft_meta_bridge or
+    nf_conntrack_bridge, such as Raspberry Pi OS's, naming the missing
+    modules, and dfw check reports them as an error.
+  * dfw check lists each network's containers under it, and the rules one
+    line per peer with the ports it reaches.
+
+ -- dfw maintainers <lookap.dev@gmail.com>  Thu, 12 Nov 2026 19:19:24 +0100
+
 dfw (0.1.1) unstable; urgency=medium
 
   * A running container that Docker fails to answer about keeps its rules,
