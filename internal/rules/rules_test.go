@@ -14,6 +14,7 @@ func TestParse(t *testing.T) {
 		"  ":                      "",
 		"[b]:5432, 10.10.20.20":   "[b]:5432,10.10.20.20",
 		"rfc1918":                 "rfc1918",
+		"any, [any]:80":           "any,[any]:80",
 		"[internet]":              "[internet]",
 		"[my-svc_1.x]":            "[my-svc_1.x]",
 		"internet":                "internet",
@@ -186,6 +187,10 @@ func TestResolve(t *testing.T) {
 	es, _ = Parse("internet:443/tcp")
 	if a = Resolve(es, env, true); len(a.Ports) != 1 {
 		t.Errorf("internet:443 must not include dns: %v", a.Ports)
+	}
+	es, _ = Parse("any, internet:443/tcp, 1.2.3.4:icmp")
+	if a = Resolve(es, env, true); str(a.Any) != str(rs("0.0.0.0/0", "::/0")) || len(a.Ports) != 0 || len(a.ICMP) != 0 {
+		t.Errorf("any must be every address and absorb the rest: %v %v %v", a.Any, a.Ports, a.ICMP)
 	}
 	es, _ = Parse("[p-b-2]")
 	if a = Resolve(es, env, true); str(a.Any) != str(rs("172.18.0.4")) {

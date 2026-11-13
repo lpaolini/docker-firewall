@@ -147,7 +147,8 @@ allow [a] -> $EXT
 allow [b] -> internet
 allow lan -> [lanhost]
 allow [d] -> rfc1918
-allow [mh] -> internet"
+allow [mh] -> internet
+allow [lanhost] -> any"
 
 say "installing the package changes no traffic"
 installed && { echo "dfw is already installed; remove it first"; exit 1; }
@@ -166,7 +167,7 @@ say "check and enable"
 no_ "dfw enable with the shipped rules (no network)" sh -c "dfw enable >$DIR/enable 2>&1"
 printf '%s\nallow [a] -> [b]:5432, oops:\n' "$MAIN" | write_rules $RULES
 no_ "dfw enable with an error in the rules" sh -c "dfw enable >$DIR/enable 2>&1"
-yes_ "the refusal names the line" grep -q "$RULES:11: destination" "$DIR/enable"
+yes_ "the refusal names the line" grep -q "$RULES:12: destination" "$DIR/enable"
 no_ "nothing changed by the refused enables" sh -c "nft list table bridge fw >/dev/null 2>&1"
 echo "$MAIN" | write_rules $RULES
 printf 'network %s\nallow [a] -> [nobody]\n' "$NET" >"$DIR/candidate"
@@ -197,6 +198,8 @@ no_ "b -> lanhost:80 (internet excludes lan)" tcp $B "$(ip4 $L)" 80
 yes_ "d -> lanhost:80 (rfc1918 out, lan in)" tcp $D "$(ip4 $L)" 80
 no_ "d -> lanhost:80 over IPv6 (rfc1918 is IPv4 only)" tcp $D "[$(ip6 $L)]" 80
 no_ "a -> gateway (host not listed)" pings $A "$(gw $A)"
+yes_ "lanhost -> $EXT2 (any)" web $L "$EXT2"
+yes_ "lanhost -> gateway (any includes host)" pings $L "$(gw $L)"
 
 say "no rule means no network"
 no_ "n -> $EXT" pings $N "$EXT"
@@ -238,7 +241,7 @@ echo "$MAIN" | write_rules $RULES
 yes_ "a -> b:5432 once the rule is back" tcp $A "$(ip4 $B)" 5432
 printf '%s\nallow [b] -> [a]:99999\n' "$MAIN" | save_rules $RULES
 no_ "dfw apply with an error in the rules" sh -c "dfw apply >$DIR/apply 2>&1"
-yes_ "the refusal names the line and changes nothing" sh -c "grep -q '$RULES:11: destination' $DIR/apply && grep -q 'nothing was changed' $DIR/apply"
+yes_ "the refusal names the line and changes nothing" sh -c "grep -q '$RULES:12: destination' $DIR/apply && grep -q 'nothing was changed' $DIR/apply"
 yes_ "a -> b:5432 still allowed (the applied rules stay)" tcp $A "$(ip4 $B)" 5432
 
 say "at start, valid rules are applied; invalid ones fall back to the last applied"

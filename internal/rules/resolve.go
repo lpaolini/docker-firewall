@@ -69,6 +69,8 @@ func addrs(as []netip.Addr) []Range {
 func Zone(zone string, env Env) []Range {
 	host := addrs(append(slices.Clone(env.HostAddrs), env.Gateways...))
 	switch zone {
+	case ZoneAny:
+		return everything
 	case ZoneHost:
 		return host
 	case ZoneLAN:

@@ -102,6 +102,7 @@ comma-separated list. The destination may end in `:port`, `:port/tcp`,
 | `rfc1918` | 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, except `host` |
 | `lan` | `rfc1918` plus fc00::/7, except `host` |
 | `host` | The host's own addresses and the gateways of the container's filtered networks |
+| `any` | Every IPv4 and IPv6 address: all the zones above and the ranges `internet` leaves out. `allow [foo] -> any` gives `foo` the outbound access it has without dfw |
 | `dns` | Destination only, no port: the container's upstream DNS servers on port 53, from its `dns:` option, else `"dns"` in `/etc/docker/daemon.json`, else the host's resolv.conf (never the container's own) |
 
 - **One side must be a container.** A rule between two containers opens the

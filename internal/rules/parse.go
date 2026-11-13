@@ -15,6 +15,7 @@ const (
 	ZoneHost     = "host"
 	ZoneDNS      = "dns"
 	ZoneRFC1918  = "rfc1918"
+	ZoneAny      = "any"
 )
 
 // Protocols. ICMP stands for ICMP to IPv4 addresses and ICMPv6 to IPv6 ones.
@@ -145,7 +146,7 @@ func parseEntry(s string) (Entry, error) {
 
 func (e *Entry) parseTarget(t string) error {
 	switch t {
-	case ZoneInternet, ZoneLAN, ZoneHost, ZoneDNS, ZoneRFC1918:
+	case ZoneInternet, ZoneLAN, ZoneHost, ZoneDNS, ZoneRFC1918, ZoneAny:
 		e.Zone = t
 		return nil
 	case "":

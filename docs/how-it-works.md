@@ -174,7 +174,8 @@ allow can start at once; the rest are refused and marked again.
   the gateways of the container's filtered networks; `lan`, `rfc1918` and
   `internet` exclude it. `internet` also excludes loopback, link-local,
   multicast, 100.64.0.0/10, unroutable ranges and the IPv6 ranges that embed
-  IPv4 (which could otherwise reach `lan` or `host`).
+  IPv4 (which could otherwise reach `lan` or `host`). `any` is every IPv4
+  and IPv6 address, `host` included.
 - `dns` is the container's upstream servers on port 53, taken from settings
   the host's administrator controls: the container's `dns:` option, else
   `daemon.json`, else the host's resolv.conf (and, behind a loopback stub,
