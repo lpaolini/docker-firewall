@@ -70,7 +70,8 @@ on its own).
 ## Rules
 
 dfw reads `/etc/dfw/rules`, then `/etc/dfw/rules.d/*.rules` in name order, as
-one file:
+one file. `#` starts a comment that runs to the end of the line, on a line of
+its own or after a rule:
 
 ```
 network foobar_net
@@ -78,7 +79,7 @@ network foobar_net
 allow [foo] -> [bar]:1234/tcp
 allow [foo] -> internet
 allow [foo] -> lan
-allow internet -> [bar]:443/tcp
+allow internet -> [bar]:443/tcp   # the web UI
 allow [bar] -> 10.10.20.20
 allow [bar] -> 10.10.30.0/24
 ```
