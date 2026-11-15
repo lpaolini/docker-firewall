@@ -289,6 +289,8 @@ func cmdCheck(file string, note bool) (int, []rules.File, error) {
 			dir = ""
 		}
 	}
+	// By name, as the rules name them; w.ctrs stays in ID order.
+	byName := slices.SortedFunc(slices.Values(w.ctrs), func(a, b *ctr) int { return strings.Compare(a.name, b.name) })
 	shown := map[*ctr]string{} // the network each container is shown under
 	for i, n := range cfg.Networks {
 		if i > 0 {
@@ -299,7 +301,7 @@ func cmdCheck(file string, note bool) (int, []rules.File, error) {
 		} else {
 			fmt.Printf("warning: network %s doesn't exist; its containers will be filtered once it does\n", n)
 		}
-		for _, c := range w.ctrs {
+		for _, c := range byName {
 			if _, on := c.info.NetworkSettings.Networks[n]; !on {
 				continue
 			}
