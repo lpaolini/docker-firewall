@@ -501,10 +501,13 @@ first() { # first SERVICE FILTER: start containers, capture on lanhost's veth an
 	timeout 900 tcpdump -i "$LV" -n -U -w "$DIR/peer.pcap" "$2" 2>/dev/null &
 	local t2=$!
 	sleep 1
-	for _ in $(seq "${FIRST:-50}"); do
-		docker run --rm --network $NET -l "com.docker.compose.service=$1" "$IMG" sh -c \
-			"echo x | socat - UDP-DATAGRAM:10.210.0.255:9998,broadcast; echo x | socat - UDP:$(ip4 $L):9998; echo x | socat - UDP:$EXT2:9998; echo x | socat - UDP:$GW:9998" >/dev/null 2>&1
-	done
+	# Five at a time: each start spends ~2 s in socat's 0.5 s wait after each
+	# send, which gives ARP time to resolve so the unicast probes really go out.
+	local cmd="echo x | socat - UDP-DATAGRAM:10.210.0.255:9998,broadcast; echo x | socat - UDP:$(ip4 $L):9998; echo x | socat - UDP:$EXT2:9998; echo x | socat - UDP:$GW:9998"
+	( for i in $(seq "${FIRST:-50}"); do
+		docker run --rm --network $NET -l "com.docker.compose.service=$1" "$IMG" sh -c "$cmd" >/dev/null 2>&1 &
+		[ $((i % 5)) = 0 ] && wait
+	done; wait )
 	sleep 1; kill $t1 $t2 2>/dev/null; wait $t1 $t2 2>/dev/null
 	local nw np
 	nw=$(tcpdump -r "$DIR/wan.pcap" -n 2>/dev/null | wc -l) np=$(tcpdump -r "$DIR/peer.pcap" -n 2>/dev/null | wc -l)

@@ -177,13 +177,15 @@ q3() {
 	tcpdump -i "$wan" -n -U -w /tmp/gate-q3-wan.pcap "udp port 9999" 2>/dev/null &
 	local t3=$!
 	sleep 2
-	local i
-	for i in $(seq "$N"); do
-		docker run --rm --network $NET "$IMG" sh -c \
-			"echo x | socat - UDP-DATAGRAM:$bcast:9999,broadcast; echo x | socat - UDP:$gw:9999; echo x | socat - UDP:$(ip4 g-peer):9999; echo x | socat - UDP:$EXT:9999" \
-			>/dev/null 2>&1
+	# Five at a time, in a subshell so wait leaves the captures alone. Keep
+	# socat's 0.5 s wait after each send: it lets ARP resolve, so the unicast
+	# probes really go out.
+	local cmd="echo x | socat - UDP-DATAGRAM:$bcast:9999,broadcast; echo x | socat - UDP:$gw:9999; echo x | socat - UDP:$(ip4 g-peer):9999; echo x | socat - UDP:$EXT:9999"
+	( for i in $(seq "$N"); do
+		docker run --rm --network $NET "$IMG" sh -c "$cmd" >/dev/null 2>&1 &
+		[ $((i % 5)) = 0 ] && wait
 		[ $((i % 100)) = 0 ] && echo "  $i starts"
-	done
+	done; wait )
 	sleep 2
 	kill $t1 $t2 $t3; wait $t1 $t2 $t3 2>/dev/null
 	local nb np nw
