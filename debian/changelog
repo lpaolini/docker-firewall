@@ -1,3 +1,16 @@
+dfw (0.1.5) unstable; urgency=medium
+
+  * Rules accept address ranges, such as 10.0.0.5-10.0.0.20 or
+    [fd00::1-fd00::ff]:443. A range must lie wholly inside or wholly
+    outside each private and special block.
+  * Security: a compose service name now matches only containers named the
+    way Compose names them, <project>-<service>-<N>. An image could set the
+    com.docker.compose.* labels itself and claim another service's rules.
+    dfw check warns when a rule names a service that such a container
+    claims.
+
+ -- dfw maintainers <lookap.dev@gmail.com>  Mon, 16 Nov 2026 14:36:51 +0100
+
 dfw (0.1.4) unstable; urgency=medium
 
   * dfw check lists the containers under each network by name.
