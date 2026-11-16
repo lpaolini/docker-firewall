@@ -86,7 +86,7 @@ serve() { # serve NAME [docker run args...]
 cleanup() {
 	chmod +x /usr/sbin/conntrack
 	docker compose -p $P -f "$DIR/compose.yaml" down -t 0 >/dev/null 2>&1
-	docker rm -f ic1 ic2 internet pub pubok fh kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 >/dev/null 2>&1
+	docker rm -f ic1 ic2 internet pub pubok fh kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 imp $P-b-9 >/dev/null 2>&1
 	docker network rm $NET $TWO $FREE acc_new >/dev/null 2>&1
 	ip netns del dfwlan 2>/dev/null
 	[ -n "${RPF:-}" ] && sysctl -qw net.ipv4.conf.all.rp_filter="$RPF"
@@ -217,6 +217,16 @@ yes_ "m2 -> t:80 over $TWO" tcp $M2 "$(ipon $T $TWO)" 80
 no_ "t2 -> t:80 (no rule)" tcp $T2 "$(ipon $T $TWO)" 80
 yes_ "both of m2's veths jump to its chains, none is dropped" sh -c "[ \"\$(nft list map bridge fw out_by_port | grep -o '$(key $M2)_out' | wc -l)\" = 2 ]"
 no_ "$TWO's bridge is in the open set" sh -c "nft list set bridge fw open_bridges | grep -q br-$(docker network inspect -f '{{.Id}}' $TWO | cut -c1-12)"
+
+say "a compose service counts only on a container Compose named"
+# The labels could come from an image; the name can't.
+for n in imp $P-b-9; do serve "$n" -l com.docker.compose.service=b -l com.docker.compose.project=$P; done
+wait_rules imp; wait_rules $P-b-9
+no_ "imp, labelled as service b, -> $EXT2 (b's rule)" web imp "$EXT2"
+no_ "a -> imp:5432 (a may reach [b])" tcp $A "$(ip4 imp)" 5432
+yes_ "dfw warns that imp's label doesn't count" logged "container imp: has compose service label"
+yes_ "$P-b-9, named as Compose names b, -> $EXT2" web $P-b-9 "$EXT2"
+docker rm -f imp $P-b-9 >/dev/null
 
 say "on a live system, edits apply only through dfw apply"
 echo "allow [n] -> $EXT" | save_rules $RULESD/n.rules
@@ -438,6 +448,22 @@ sleep 1
 docker exec sp arping -c 2 -U -I eth0 -s 10.210.0.200 10.210.0.200 >/dev/null 2>&1
 wait
 no_ "gratuitous ARP for a stolen address reaches no one" grep -q . "$DIR/arp"
+# A VLAN tag (or any non-IP ethertype) can't carry traffic past the out chain:
+# nftables reads the 802.1Q TPID as the ether type, so the first out rule drops
+# a tagged frame. sp (NET_ADMIN) emits real tagged frames over a VLAN
+# subinterface; they must show on sp's own veth but never reach lanhost.
+SV=$(ip -o link | awk -F'[ :@]+' -v i="$(nsenter -t "$(docker inspect -f '{{.State.Pid}}' sp)" -n ip -o link show eth0 | sed -n 's/.*@if\([0-9]*\).*/\1/p')" '$1==i {print $2}')
+docker exec sp ip link add link eth0 name eth0.7 type vlan id 7
+docker exec sp ip link set eth0.7 up
+docker exec sp ip addr add 10.210.0.207/24 dev eth0.7
+timeout 6 tcpdump -i "$SV" -n -c1 vlan 2>/dev/null >"$DIR/vlan-out" &
+timeout 6 tcpdump -i "$LV" -n -c1 vlan 2>/dev/null >"$DIR/vlan-in" &
+sleep 1
+docker exec sp ping -c3 -W1 -I eth0.7 "$(ip4 $L)" >/dev/null 2>&1 || true
+wait
+yes_ "sp emitted a VLAN-tagged frame (so the next check isn't vacuous)" grep -q . "$DIR/vlan-out"
+no_ "a VLAN-tagged frame reached lanhost" grep -q . "$DIR/vlan-in"
+docker exec sp ip link del eth0.7
 docker exec sp ip link set eth0 address 02:42:de:ad:be:ef
 no_ "spoofed MAC" tcp sp "$(ip4 $L)" 80
 docker rm -f sp >/dev/null
@@ -505,7 +531,7 @@ first() { # first SERVICE FILTER: start containers, capture on lanhost's veth an
 	# send, which gives ARP time to resolve so the unicast probes really go out.
 	local cmd="echo x | socat - UDP-DATAGRAM:10.210.0.255:9998,broadcast; echo x | socat - UDP:$(ip4 $L):9998; echo x | socat - UDP:$EXT2:9998; echo x | socat - UDP:$GW:9998"
 	( for i in $(seq "${FIRST:-50}"); do
-		docker run --rm --network $NET -l "com.docker.compose.service=$1" "$IMG" sh -c "$cmd" >/dev/null 2>&1 &
+		docker run --rm --network $NET --name "$P-$1-$i" -l "com.docker.compose.service=$1" -l "com.docker.compose.project=$P" "$IMG" sh -c "$cmd" >/dev/null 2>&1 &
 		[ $((i % 5)) = 0 ] && wait
 	done; wait )
 	sleep 1; kill $t1 $t2 2>/dev/null; wait $t1 $t2 2>/dev/null

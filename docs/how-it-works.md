@@ -135,7 +135,12 @@ MACs.
 `c<id>_out`, in order:
 
 1. Drop anything but ARP, IPv4 and IPv6, and frames whose source MAC, IP or
-   ARP sender isn't the container's own on that port.
+   ARP sender isn't the container's own on that port. The ethertype check is
+   the first rule and runs before any accept, so a frame a container can forge
+   with `CAP_NET_RAW` is caught no matter its contents: a VLAN-tagged frame
+   (802.1Q or 802.1ad) carries the tag's ethertype (`0x8100`/`0x88a8`), which
+   is none of the three, so it is dropped here; nftables never reads the inner
+   header as if it were IP.
 2. Accept the container's own ARP, at most its plain size. Accept IPv6
    neighbour discovery only from its own addresses, with hop limit 255, at
    most 32 bytes (one link-layer address option), to link-local, link-local
@@ -169,7 +174,13 @@ allow can start at once; the rest are refused and marked again.
 
 - `[name]` is every running container on the filtered networks with that
   container or compose service name, with all its filtered addresses. No
-  match resolves to nothing, which `dfw check` reports.
+  match resolves to nothing, which `dfw check` reports. The container name
+  is chosen by whoever creates the container. The compose service name comes
+  from the `com.docker.compose.*` labels, which an image can also set (with
+  `LABEL`), so that a hostile image would get another service's rules. dfw
+  therefore counts the service only on a container named the way Compose
+  names one: `<project>-<service>-<N>`, or `<project>-<service>-run-<id>`,
+  as its labels say. Otherwise it ignores the labels and warns.
 - Zones are computed per container. `host` is the host's own addresses plus
   the gateways of the container's filtered networks; `lan`, `rfc1918` and
   `internet` exclude it. `internet` also excludes loopback, link-local,

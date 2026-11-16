@@ -135,6 +135,32 @@ func TestMatchPorts(t *testing.T) {
 	}
 }
 
+func TestComposeService(t *testing.T) {
+	labels := map[string]string{serviceLabel: "db", projectLabel: "app"}
+	for _, tc := range []struct {
+		why    string
+		name   string
+		labels map[string]string
+		want   string
+	}{
+		{"no labels", "app-db-1", nil, ""},
+		{"Compose name", "app-db-1", labels, "db"},
+		{"Compose name, scaled", "app-db-12", labels, "db"},
+		{"compose run", "app-db-run-25701f9125fe", labels, "db"},
+		{"other name", "evil", labels, ""},
+		{"another service's name", "app-web-1", labels, ""},
+		{"not a number", "app-db-x", labels, ""},
+		{"run without an ID", "app-db-run-", labels, ""},
+		{"no number", "app-db-", labels, ""},
+		{"longer name", "app-db-1-x", labels, ""},
+		{"no project label", "-db-1", map[string]string{serviceLabel: "db"}, ""},
+	} {
+		if got := composeService(tc.name, tc.labels); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.why, got, tc.want)
+		}
+	}
+}
+
 // TestGatherUnreadable checks that a running container Docker can't answer
 // about keeps its veths as last read, under the current rules, and that one
 // never read stays blocked.

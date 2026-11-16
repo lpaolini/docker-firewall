@@ -239,7 +239,12 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 	}
 	slices.Sort(filtered)
 	slices.Sort(others)
-	c := &ctr{info: info, name: strings.TrimPrefix(info.Name, "/"), service: info.Config.Labels["com.docker.compose.service"]}
+	c := &ctr{info: info, name: strings.TrimPrefix(info.Name, "/")}
+	if s := info.Config.Labels[serviceLabel]; s != "" {
+		if c.service = composeService(c.name, info.Config.Labels); c.service == "" {
+			c.warnings = append(c.warnings, fmt.Sprintf("has compose service label %q but isn't named the way Compose names that service's containers, so rules naming [%s] don't match it; name it [%s]", s, s, c.name))
+		}
+	}
 	c.in, c.out = cfg.For(c.name, c.service)
 	if info.HostConfig.Privileged {
 		c.warnings = append(c.warnings, "is privileged: filtered at its veth, but it can escape to the host")
@@ -302,6 +307,37 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 		c.warnings = append(c.warnings, "no rule mentions it: no network access")
 	}
 	return c, nil
+}
+
+const (
+	serviceLabel = "com.docker.compose.service"
+	projectLabel = "com.docker.compose.project"
+)
+
+// composeService returns the container's compose service, or "" unless its
+// name confirms it. An image can set the labels with LABEL, and a container
+// inherits them, so a hostile image could claim any service's rules. Its name
+// is chosen by whoever creates the container, never by the image, so the
+// service counts only on a container named the way Compose names one:
+// project-service-N, or project-service-run-ID for "compose run".
+func composeService(name string, labels map[string]string) string {
+	s, p := labels[serviceLabel], labels[projectLabel]
+	rest, ok := strings.CutPrefix(name, p+"-"+s+"-")
+	if s == "" || p == "" || !ok {
+		return ""
+	}
+	if id, run := strings.CutPrefix(rest, "run-"); run {
+		rest = id
+		if _, err := hex.DecodeString(rest); err != nil {
+			return ""
+		}
+	} else if strings.Trim(rest, "0123456789") != "" {
+		return ""
+	}
+	if rest == "" {
+		return ""
+	}
+	return s
 }
 
 // findPorts finds the host side of the container's veth on each network,

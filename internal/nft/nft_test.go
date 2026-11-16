@@ -199,6 +199,73 @@ func TestLinkLocal(t *testing.T) {
 	}
 }
 
+// TestChainOrder locks in the ordering a container's chains depend on to be
+// safe. A frame a container can put on the wire with CAP_NET_RAW (any
+// ethertype, including an 802.1Q/802.1ad VLAN tag, any source MAC or IP) must
+// meet a drop before any accept can let it out. nftables reads a VLAN tag's
+// TPID as the ether type, so the first rule's ethertype allow-list drops
+// tagged and other non-IP frames (verified against nft 1.1.3 in the bridge
+// family). If these rules are ever reordered, a crafted frame could escape.
+func TestChainOrder(t *testing.T) {
+	out, in := chains(sample().Containers[0])
+	const ethDrop = "ether type != { arp, ip, ip6 } drop"
+	if out[0] != ethDrop || in[0] != ethDrop {
+		t.Fatalf("ethertype allow-list is not the first rule of both chains:\nout[0]=%q\nin[0]=%q", out[0], in[0])
+	}
+	// index reports the index of the first rule containing want, or -1.
+	index := func(rules []string, want string) int {
+		for i, r := range rules {
+			if strings.Contains(r, want) {
+				return i
+			}
+		}
+		return -1
+	}
+	firstAccept := func(rules []string) int {
+		for i, r := range rules {
+			if strings.HasSuffix(r, " accept") {
+				return i
+			}
+		}
+		return len(rules)
+	}
+	// The out chain pins the source MAC before anything is accepted, so a
+	// spoofed sender can't use even the ARP or ND accepts.
+	if i := index(out, "ether saddr != @"); i < 0 || i >= firstAccept(out) {
+		t.Errorf("out chain does not pin the source MAC (rule %d) before its first accept (rule %d)", i, firstAccept(out))
+	}
+	// The source-address pins must precede the rules that accept an IP packet
+	// by its destination, so a container can't source traffic as a peer. The
+	// destination accepts start the rule (the earlier ND accepts match
+	// "iif . ip6 daddr" and are gated by their own source set instead).
+	firstDstAccept := len(out)
+	for i, r := range out {
+		if strings.HasPrefix(r, "ip daddr") || strings.HasPrefix(r, "ip6 daddr") ||
+			strings.HasPrefix(r, "meta l4proto icmp") || strings.HasPrefix(r, "meta l4proto ipv6-icmp") {
+			firstDstAccept = i
+			break
+		}
+	}
+	for _, pin := range []string{"ip saddr != @", "ip6 saddr != @"} {
+		if pi := index(out, pin); pi < 0 || pi > firstDstAccept {
+			t.Errorf("out chain's %q pin (rule %d) does not precede the first destination accept (rule %d)", pin, pi, firstDstAccept)
+		}
+	}
+	// A connection refused earlier (its mark set) must be dropped before the
+	// established/related accept, in both directions.
+	for _, name := range []string{"out", "in"} {
+		ch := out
+		if name == "in" {
+			ch = in
+		}
+		mark := index(ch, "ct mark & "+Denied+" != 0 drop")
+		est := index(ch, "ct state established,related accept")
+		if mark < 0 || est < 0 || mark > est {
+			t.Errorf("%s chain: refused-mark drop (rule %d) must precede the established accept (rule %d)", name, mark, est)
+		}
+	}
+}
+
 // Check validates ruleset text without applying it.
 func Check(text string) error {
 	_, err := run(text, "--check", "-f", "-")
