@@ -78,9 +78,17 @@ wait_rules() {
 	for _ in $(seq 100); do has_rules "$1" && return 0; sleep 0.1; done
 	return 1
 }
-serve() { # serve NAME [docker run args...]
+serve() { # serve NAME [docker run args...]: start a server, wait for its sockets
 	local n=$1; shift
 	docker run -d --name "$n" --network $NET "$@" "$IMG" sh -c "$SERVE" >/dev/null
+	# Its six sockets (TCP and UDP on 0050, 1538, 270F hex) must be bound
+	# before a check counts on them: an unbound UDP port answers port
+	# unreachable at once, and would make a "blocked" check pass for nothing.
+	for _ in $(seq 50); do
+		[ "$(docker exec "$n" cat /proc/net/tcp6 /proc/net/udp6 2>/dev/null | grep -cE ':(0050|1538|270F) ')" -ge 6 ] && return 0
+		sleep 0.1
+	done
+	echo "  ($n's server didn't start)"
 }
 
 cleanup() {
@@ -366,8 +374,8 @@ no_ "d -> ic2:80 (only icmp accepted)" tcp $D "$(ip4 ic2)" 80
 docker rm -f ic1 ic2 >/dev/null
 
 say "published ports: only what the rules allow"
-docker run -d --name pub --network $NET -p 18181:80 "$IMG" sh -c "$SERVE" >/dev/null
-docker run -d --name pubok --network $NET -p 18182:80 "$IMG" sh -c "$SERVE" >/dev/null
+serve pub -p 18181:80
+serve pubok -p 18182:80
 wait_rules pub; wait_rules pubok
 HOSTIP=$(ip -4 route get "$EXT" | sed -n 's/.* src \([0-9.]*\).*/\1/p')
 yes_ "host -> pubok's published port (allow host -> [pubok]:80/tcp)" sh -c "[ \"\$(socat -T3 - TCP:$HOSTIP:18182,connect-timeout=3 </dev/null 2>/dev/null)\" = hi ]"
@@ -382,7 +390,7 @@ docker rm -f pub pubok >/dev/null
 say "a published port can't be reached with a peer's address as source"
 # fh accepts UDP 9999 from a only. A LAN host (a namespace routed through the
 # host, with reverse-path filtering off) sends to fh's published port as a.
-docker run -d --name fh --network $NET -p 18183:9999/udp "$IMG" sh -c "$SERVE" >/dev/null
+serve fh -p 18183:9999/udp
 { echo "$MAIN"; echo "allow [a] -> [fh]:9999/udp"; } | write_rules $RULES
 wait_rules fh
 yes_ "a -> fh:9999/udp" udp $A "$(ip4 fh)" 9999
@@ -428,7 +436,7 @@ yes_ "internet includes dns" lookup dn3
 docker rm -f dn1 dn2 dn3 >/dev/null
 
 say "[internet] is a container, not the internet zone"
-docker run -d --name internet --network $NET "$IMG" sh -c "$SERVE" >/dev/null
+serve internet
 wait_rules internet
 yes_ "container [internet] -> $EXT" pings internet "$EXT"
 no_ "a container named internet gets nothing from the zone: [internet] -> $EXT2" web internet "$EXT2"
@@ -472,7 +480,7 @@ say "a restarted container gets new rules, and a peer's new IP is picked up"
 OLDKEY=$(key $B) OLDIP=$(ip4 $B)
 OLDPORT=$(nft -j list map bridge fw out_by_port | jq -r '.nftables[].map.elem? // empty | .[] | select(.[1].jump.target == "'"${OLDKEY}_out"'") | .[0]' | head -1)
 docker stop -t 0 $B >/dev/null
-docker run -d --name squat --network $NET --ip "$OLDIP" "$IMG" sh -c "$SERVE" >/dev/null
+serve squat --ip "$OLDIP"
 docker start $B >/dev/null
 wait_rules $B; wait_rules squat; sleep 0.5
 yes_ "b got a new IP ($OLDIP -> $(ip4 $B))" test "$(ip4 $B)" != "$OLDIP"
@@ -482,7 +490,7 @@ no_ "b's old port is gone from the map" sh -c "nft -j list map bridge fw out_by_
 docker rm -f squat >/dev/null
 
 say "a stale UDP flow can't reach a new container that reuses the IP"
-docker run -d --name ct-srv --network $NET --ip 10.210.0.250 "$IMG" sh -c "$SERVE" >/dev/null
+serve ct-srv --ip 10.210.0.250
 docker run -d --name ct-cli --network $NET "$IMG" sh -c \
 	'while :; do echo x | socat -T1 - UDP:10.210.0.250:9999,sourceport=40000,reuseaddr >>/tmp/replies; sleep 0.2; done' >/dev/null
 wait_rules ct-srv; wait_rules ct-cli; sleep 2
