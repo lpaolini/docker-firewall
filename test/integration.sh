@@ -228,7 +228,12 @@ no_ "$TWO's bridge is in the open set" sh -c "nft list set bridge fw open_bridge
 
 say "a compose service counts only on a container Compose named"
 # The labels could come from an image; the name can't.
-for n in imp $P-b-9; do serve "$n" -l com.docker.compose.service=b -l com.docker.compose.project=$P; done
+# imp gets an address no later container takes: a keeps imp's MAC for it in
+# its neighbour cache, and a container that reused it, with another MAC,
+# would lose a's first frames (its address announcements are dropped while
+# it waits for its rules).
+serve imp --ip 10.210.0.240 -l com.docker.compose.service=b -l com.docker.compose.project=$P
+serve $P-b-9 -l com.docker.compose.service=b -l com.docker.compose.project=$P
 wait_rules imp; wait_rules $P-b-9
 no_ "imp, labelled as service b, -> $EXT2 (b's rule)" web imp "$EXT2"
 no_ "a -> imp:5432 (a may reach [b])" tcp $A "$(ip4 imp)" 5432
