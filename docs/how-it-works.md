@@ -180,7 +180,9 @@ allow can start at once; the rest are refused and marked again.
   `LABEL`), so that a hostile image would get another service's rules. dfw
   therefore counts the service only on a container named the way Compose
   names one: `<project>-<service>-<N>`, or `<project>-<service>-run-<id>`,
-  as its labels say. Otherwise it ignores the labels and warns.
+  as its labels say. Otherwise it ignores the labels, and warns if a rule
+  names the service. A container with `container_name:` is matched by that
+  name.
 - Zones are computed per container. `host` is the host's own addresses plus
   the gateways of the container's filtered networks; `lan`, `rfc1918` and
   `internet` exclude it. `internet` also excludes loopback, link-local,

@@ -240,9 +240,12 @@ func (w *world) container(ctx context.Context, dc *docker.Client, id string, dri
 	slices.Sort(filtered)
 	slices.Sort(others)
 	c := &ctr{info: info, name: strings.TrimPrefix(info.Name, "/")}
-	if s := info.Config.Labels[serviceLabel]; s != "" {
-		if c.service = composeService(c.name, info.Config.Labels); c.service == "" {
-			c.warnings = append(c.warnings, fmt.Sprintf("has compose service label %q but isn't named the way Compose names that service's containers, so rules naming [%s] don't match it; name it [%s]", s, s, c.name))
+	c.service = composeService(c.name, info.Config.Labels)
+	// Only worth saying when a rule names the service and the name doesn't
+	// match anyway, as with container_name: frigate for service frigate.
+	if s := info.Config.Labels[serviceLabel]; c.service == "" && s != "" && s != c.name {
+		if _, named := cfg.Names()[s]; named {
+			c.warnings = append(c.warnings, fmt.Sprintf("rules naming [%s] don't match it: its compose service label says %s, but it isn't named the way Compose names that service's containers (<project>-%s-<N>), so the label could come from its image; name it [%s] instead", s, s, s, c.name))
 		}
 	}
 	c.in, c.out = cfg.For(c.name, c.service)

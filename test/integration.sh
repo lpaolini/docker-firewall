@@ -237,7 +237,7 @@ serve $P-b-9 -l com.docker.compose.service=b -l com.docker.compose.project=$P
 wait_rules imp; wait_rules $P-b-9
 no_ "imp, labelled as service b, -> $EXT2 (b's rule)" web imp "$EXT2"
 no_ "a -> imp:5432 (a may reach [b])" tcp $A "$(ip4 imp)" 5432
-yes_ "dfw warns that imp's label doesn't count" logged "container imp: has compose service label"
+yes_ "dfw warns that imp's label doesn't count" logged "container imp: rules naming \[b\] don't match it"
 yes_ "$P-b-9, named as Compose names b, -> $EXT2" web $P-b-9 "$EXT2"
 docker rm -f imp $P-b-9 >/dev/null
 
