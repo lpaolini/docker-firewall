@@ -4,6 +4,7 @@ package rules
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -26,14 +27,14 @@ const (
 )
 
 // Entry is one endpoint of an allow rule: target[:port[/proto]]. A target
-// is a zone, an address or subnet (IPv6 in brackets when a port follows), or
-// a container in brackets: [name].
+// is a zone, an address, subnet or lo-hi range (IPv6 in brackets when a port
+// follows), or a container in brackets: [name].
 type Entry struct {
-	Prefix netip.Prefix // set when the target is an address or subnet
-	Zone   string       // set when the target is a zone
-	Name   string       // set when the target is a service or container name
-	Port   uint16       // 0 with no Protos means every port and protocol
-	Protos []uint8      // TCP and/or UDP with a Port, or ICMP alone
+	Range  Range   // set when the target is an address, subnet or range
+	Zone   string  // set when the target is a zone
+	Name   string  // set when the target is a service or container name
+	Port   uint16  // 0 with no Protos means every port and protocol
+	Protos []uint8 // TCP and/or UDP with a Port, or ICMP alone
 }
 
 func (e Entry) String() string {
@@ -41,12 +42,9 @@ func (e Entry) String() string {
 	if e.Name != "" {
 		t = "[" + e.Name + "]"
 	}
-	if e.Prefix.IsValid() {
-		t = e.Prefix.String()
-		if e.Prefix.IsSingleIP() {
-			t = e.Prefix.Addr().String()
-		}
-		if e.Prefix.Addr().Is6() && len(e.Protos) > 0 {
+	if e.Range.Lo.IsValid() {
+		t = e.Range.String()
+		if !e.Range.Is4() && len(e.Protos) > 0 {
 			t = "[" + t + "]"
 		}
 	}
@@ -152,35 +150,79 @@ func (e *Entry) parseTarget(t string) error {
 	case "":
 		return fmt.Errorf("missing target")
 	}
-	if strings.ContainsAny(t, ":/") || isAddrLike(t) {
-		var p netip.Prefix
-		var err error
-		if strings.Contains(t, "/") {
-			p, err = netip.ParsePrefix(t)
-			if err == nil && p != p.Masked() {
-				return fmt.Errorf("subnet %s has host bits set (did you mean %s?)", t, p.Masked())
-			}
-		} else {
-			var a netip.Addr
-			a, err = netip.ParseAddr(t)
-			if a.Zone() != "" {
-				return fmt.Errorf("bad address %s", t)
-			}
-			p = netip.PrefixFrom(a, a.BitLen())
-		}
+	if lo, hi, ok := strings.Cut(t, "-"); ok && (strings.Contains(lo, ":") || isAddrLike(strings.TrimSpace(lo))) {
+		r, err := parseRange(strings.TrimSpace(lo), strings.TrimSpace(hi))
+		e.Range = r
+		return err
+	}
+	if strings.Contains(t, "/") {
+		p, err := netip.ParsePrefix(t)
 		if err != nil {
-			return fmt.Errorf("bad address: %v", err)
+			return fmt.Errorf("bad subnet: %v", err)
+		}
+		if p != p.Masked() {
+			return fmt.Errorf("subnet %s has host bits set (did you mean %s?)", t, p.Masked())
 		}
 		if p.Addr().Is4In6() {
-			return fmt.Errorf("bad address %s", t)
+			return fmt.Errorf("bad subnet %s", t)
 		}
-		e.Prefix = p
+		e.Range = PrefixRange(p)
 		return nil
+	}
+	if strings.Contains(t, ":") || isAddrLike(t) {
+		a, err := parseAddr(t)
+		e.Range = AddrRange(a)
+		return err
 	}
 	if validName(t) {
 		return fmt.Errorf("unknown target %s (write containers in brackets: [%s])", t, t)
 	}
 	return fmt.Errorf("bad target %q", t)
+}
+
+func parseAddr(s string) (netip.Addr, error) {
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return a, fmt.Errorf("bad address: %v", err)
+	}
+	if a.Zone() != "" || a.Is4In6() {
+		return a, fmt.Errorf("bad address %s", s)
+	}
+	return a, nil
+}
+
+// boundaries are the private and special-use blocks. A range must lie inside
+// one or outside all of them: one that straddles an edge mixes, say, public
+// and private addresses, which is more likely a typo than meant.
+var boundaries = Normalize(append(slices.Clone(lanRanges), notInternet...))
+
+// parseRange parses the ends of a lo-hi range.
+func parseRange(lo, hi string) (Range, error) {
+	a, err := parseAddr(lo)
+	if err != nil {
+		return Range{}, err
+	}
+	b, err := parseAddr(hi)
+	if err != nil {
+		return Range{}, err
+	}
+	if a.Is4() != b.Is4() {
+		return Range{}, fmt.Errorf("range mixes IPv4 and IPv6")
+	}
+	if b.Less(a) {
+		return Range{}, fmt.Errorf("range ends before it starts (did you mean %s-%s?)", b, a)
+	}
+	r := Range{a, b}
+	for _, z := range boundaries {
+		if r.Hi.Less(z.Lo) || z.Hi.Less(r.Lo) {
+			continue
+		}
+		if z.Lo.Compare(r.Lo) <= 0 && r.Hi.Compare(z.Hi) <= 0 {
+			break
+		}
+		return Range{}, fmt.Errorf("range crosses an edge of %s: split it there", z)
+	}
+	return r, nil
 }
 
 // isAddrLike reports whether s has only digits and dots, so it can't be a name.

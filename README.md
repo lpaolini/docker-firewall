@@ -99,6 +99,7 @@ comma-separated list. The destination may end in `:port`, `:port/tcp`,
 | `[name]` | Running containers on the filtered networks with that container or compose service name: all replicas, all their filtered addresses. A name that matches nothing allows nothing. `[internet]` is a container, not the zone. A service name counts only on containers named the way Compose names them, `<project>-<service>-<N>` (see [how it works](docs/how-it-works.md#resolving-rules)) |
 | `10.1.2.3`, `2001:db8::1` | One address. Bracket IPv6 before a port: `[2001:db8::1]:443` |
 | `10.0.0.0/8`, `fd00::/8` | A subnet, with host bits zero |
+| `10.0.0.5-10.0.0.20`, `fd00::1-fd00::ff` | An inclusive range of one family. Bracket IPv6 before a port: `[fd00::1-fd00::ff]:443`. A range must lie wholly inside or wholly outside each private and special block (those of `lan` and the ones `internet` leaves out), so `9.255.255.0-10.0.0.5` is refused: split it at the edge |
 | `internet` | Everything except `lan`, `host`, loopback, link-local, multicast, 100.64.0.0/10, unroutable ranges and IPv6 ranges that embed IPv4 (`::ffff:0:0/96`, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`). As a destination it includes `dns` |
 | `rfc1918` | 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, except `host` |
 | `lan` | `rfc1918` plus fc00::/7, except `host` |

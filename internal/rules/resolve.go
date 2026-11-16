@@ -104,8 +104,8 @@ func Resolve(entries []Entry, env Env, out bool) Allow {
 	dns := addrs(env.DNS)
 	for _, e := range entries {
 		switch {
-		case e.Prefix.IsValid():
-			add([]Range{PrefixRange(e.Prefix)}, e.Port, e.Protos)
+		case e.Range.Lo.IsValid():
+			add([]Range{e.Range}, e.Port, e.Protos)
 		case e.Zone == ZoneDNS:
 			add(dns, 53, []uint8{TCP, UDP})
 		case e.Zone != "":
