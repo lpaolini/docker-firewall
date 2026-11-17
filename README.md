@@ -74,21 +74,31 @@ one file. `#` starts a comment that runs to the end of the line, on a line of
 its own or after a rule:
 
 ```
-network foobar_net
+network web
 
-allow [foo] -> [bar]:1234/tcp
-allow [foo] -> internet
-allow [foo] -> lan
-allow internet -> [bar]:443/tcp   # the web UI
-allow [bar] -> 10.10.20.20
-allow [bar] -> 10.10.30.0/24
+allow internet -> [reverse-proxy]:80/tcp, [reverse-proxy]:443/tcp
+allow [reverse-proxy] -> [web-server]:8080/tcp, [api-gateway]:3000/tcp
+allow [reverse-proxy] -> internet:443/tcp, dns   # renew TLS certificates
+allow [api-gateway] -> [database]:5432/tcp
+allow [api-gateway] -> 10.10.20.20:8443/tcp      # a payment service on the LAN
+allow 10.10.30.0/24 -> [database]:5432/tcp       # admins on the office subnet
 ```
 
 `network` names a Docker network to filter; repeat it for several. The same
-rules apply to containers on all of them. Here `foo` may reach `bar` on TCP
-1234, the internet and private addresses; `bar` accepts TCP 443 from the
-internet and 1234 from `foo`, and may reach 10.10.20.20 and 10.10.30.0/24.
-Every other container on `foobar_net` is cut off.
+rules apply to containers on all of them. Here:
+
+- Only `reverse-proxy` takes connections from the internet, on TCP 80 and
+  443. It forwards them to `web-server` and `api-gateway`, and may reach
+  HTTPS servers on the internet and look up names, to renew its
+  certificates.
+- `api-gateway` takes requests from `reverse-proxy` only. It may query
+  `database` and call one service on the LAN, 10.10.20.20, on TCP 8443.
+- `database` takes connections from `api-gateway` and from the office subnet
+  10.10.30.0/24, on TCP 5432.
+- `web-server` and `database` can't open any connection: no rule has them
+  as a source.
+
+Every other container on `web` is cut off.
 
 Each rule is `allow SOURCE -> DESTINATION`. Either side may be a
 comma-separated list. The destination may end in `:port`, `:port/tcp`,
