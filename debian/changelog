@@ -1,3 +1,12 @@
+dfw (0.2.0) unstable; urgency=medium
+
+  * When a rule names a container that uses another container's network
+    (--network container:NAME, or compose's network_mode: service:NAME),
+    the warning now says whose network it uses, and so whose rules it
+    gets, and which name to use instead.
+
+ -- dfw maintainers <lookap.dev@gmail.com>  Tue, 17 Nov 2026 22:40:24 +0100
+
 dfw (0.1.5) unstable; urgency=medium
 
   * Rules accept address ranges, such as 10.0.0.5-10.0.0.20 or
