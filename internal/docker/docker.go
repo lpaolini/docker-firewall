@@ -93,7 +93,12 @@ type Container struct {
 
 // Summary is one entry of the container list.
 type Summary struct {
-	ID string `json:"Id"`
+	ID         string `json:"Id"`
+	Names      []string
+	Labels     map[string]string
+	HostConfig struct {
+		NetworkMode string
+	}
 }
 
 // Network is the part of a network's inspect output that dfw reads.
@@ -121,6 +126,12 @@ func (c *Client) Running(ctx context.Context, networks []string) ([]string, erro
 		ids[i] = x.ID
 	}
 	return ids, nil
+}
+
+// All lists every running container.
+func (c *Client) All(ctx context.Context) ([]Summary, error) {
+	var s []Summary
+	return s, c.get(ctx, "/containers/json", &s)
 }
 
 // Inspect returns a container's details.

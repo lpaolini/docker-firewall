@@ -21,6 +21,9 @@ P=acc
 NET=${P}_default # a filtered network
 TWO=${P}_two     # another filtered network
 FREE=${P}_free   # a network dfw must leave alone
+IPAM=${P}_ipam   # filtered networks with settings dfw doesn't depend on
+V6=${P}_v6
+RT=${P}_rt
 RULES=/etc/dfw/rules
 RULESD=/etc/dfw/rules.d
 FAILED=0
@@ -69,7 +72,8 @@ pings() { docker exec "$1" ping -c1 -W3 "$2" >/dev/null 2>&1; }
 web() { docker exec "$1" curl -s -m5 -o /dev/null "http://$2/"; }
 ipon() { docker inspect -f "{{(index .NetworkSettings.Networks \"$2\").IPAddress}}" "$1"; }
 ip4() { ipon "$1" $NET; }
-ip6() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").GlobalIPv6Address}}" "$1"; }
+ip6on() { docker inspect -f "{{(index .NetworkSettings.Networks \"$2\").GlobalIPv6Address}}" "$1"; }
+ip6() { ip6on "$1" $NET; }
 gw() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").Gateway}}" "$1"; }
 installed() { dpkg-query -W -f='${Status}' dfw 2>/dev/null | grep "ok installed" >/dev/null; }
 key() { echo "c$(docker inspect -f '{{.Id}}' "$1" | cut -c1-16)"; }
@@ -78,9 +82,9 @@ wait_rules() {
 	for _ in $(seq 100); do has_rules "$1" && return 0; sleep 0.1; done
 	return 1
 }
-serve() { # serve NAME [docker run args...]: start a server, wait for its sockets
+serve() { # [ON=NETWORK] serve NAME [docker run args...]: start a server, wait for its sockets
 	local n=$1; shift
-	docker run -d --name "$n" --network $NET "$@" "$IMG" sh -c "$SERVE" >/dev/null
+	docker run -d --name "$n" --network "${ON:-$NET}" "$@" "$IMG" sh -c "$SERVE" >/dev/null
 	# Its six sockets (TCP and UDP on 0050, 1538, 270F hex) must be bound
 	# before a check counts on them: an unbound UDP port answers port
 	# unreachable at once, and would make a "blocked" check pass for nothing.
@@ -94,9 +98,11 @@ serve() { # serve NAME [docker run args...]: start a server, wait for its socket
 cleanup() {
 	chmod +x /usr/sbin/conntrack
 	docker compose -p $P -f "$DIR/compose.yaml" down -t 0 >/dev/null 2>&1
-	docker rm -f ic1 ic2 internet pub pubok fh kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 imp $P-b-9 >/dev/null 2>&1
-	docker network rm $NET $TWO $FREE acc_new >/dev/null 2>&1
+	docker rm -f ic1 ic2 internet pub pubok fh kk sp squat ct-cli ct-srv ct-new lat dn1 dn2 dn3 nw1 rn1 rn2 rn3 cr1 cr2 cr3 imp $P-b-9 \
+		ia1 ia2 v6a v6b rt1 sc ns1 >/dev/null 2>&1
+	docker network rm $NET $TWO $FREE $IPAM $V6 $RT acc_new >/dev/null 2>&1
 	ip netns del dfwlan 2>/dev/null
+	ip netns del dfwrt 2>/dev/null
 	[ -n "${RPF:-}" ] && sysctl -qw net.ipv4.conf.all.rp_filter="$RPF"
 	rm -rf "$DIR" "$RULESD"
 }
@@ -334,6 +340,85 @@ yes_ "dfwtest0 held is logged" logged "bridge dfwtest0 is blocked until every fi
 echo "$MAIN" | write_rules $RULES
 yes_ "dfwtest0 is open once every filtered network exists" eventually sh -c "nft list set bridge fw open_bridges | grep -q dfwtest0"
 ip link del dfwtest0
+
+say "addressing: dfw reads each container's addresses, whatever the network's settings"
+# Docker 27 added gateway modes, 28 IPv6-only networks; docker.io may be older.
+DV=$(docker version -f '{{.Server.Version}}' | cut -d. -f1)
+docker network create --subnet 10.214.0.0/24 --ip-range 10.214.0.128/25 --gateway 10.214.0.254 \
+	--aux-address spare=10.214.0.129 $IPAM >/dev/null
+NETS="network $IPAM
+allow [ia1] -> [ia2]:80
+allow [ia2] -> host:icmp"
+if [ "$DV" -ge 28 ]; then
+	docker network create --ipv4=false --ipv6 --subnet fd00:216::/64 $V6 >/dev/null
+	NETS+="
+network $V6
+allow [v6a] -> [v6b]:80"
+else
+	echo "  (Docker $DV: IPv6-only networks need 28, skipped)"
+fi
+if [ "$DV" -ge 27 ]; then
+	docker network create --subnet 10.215.0.0/24 -o com.docker.network.bridge.gateway_mode_ipv4=routed $RT >/dev/null
+	NETS+="
+network $RT
+allow 203.0.113.2 -> [rt1]:80/tcp"
+else
+	echo "  (Docker $DV: routed gateway mode needs 27, skipped)"
+fi
+echo "$NETS" | write_rules $RULESD/nets.rules
+
+# A fixed address outside --ip-range, one from the range, and a gateway that
+# isn't the subnet's first address.
+ON=$IPAM serve ia1 --ip 10.214.0.10
+ON=$IPAM serve ia2
+wait_rules ia1; wait_rules ia2
+yes_ "ia1 (fixed address) -> ia2:80" tcp ia1 "$(ipon ia2 $IPAM)" 80
+no_ "ia1 -> ia2:5432 (port not allowed)" tcp ia1 "$(ipon ia2 $IPAM)" 5432
+no_ "ia2 -> ia1:80 (no rule that way)" tcp ia2 10.214.0.10 80
+yes_ "ia2 -> 10.214.0.254 (host includes the custom gateway)" pings ia2 10.214.0.254
+no_ "ia1 -> 10.214.0.254 (host not listed)" pings ia1 10.214.0.254
+
+if [ "$DV" -ge 28 ]; then
+	ON=$V6 serve v6a
+	ON=$V6 serve v6b
+	wait_rules v6a; wait_rules v6b
+	yes_ "IPv6-only: v6a has no IPv4 address" test -z "$(ipon v6a $V6)"
+	yes_ "IPv6-only: v6a -> v6b:80" tcp v6a "[$(ip6on v6b $V6)]" 80
+	no_ "IPv6-only: v6a -> v6b:5432 (port not allowed)" tcp v6a "[$(ip6on v6b $V6)]" 5432
+	no_ "IPv6-only: v6b -> v6a:80 (no rule that way)" tcp v6b "[$(ip6on v6a $V6)]" 80
+fi
+
+if [ "$DV" -ge 27 ]; then
+	# Routed mode: no NAT, so a LAN host (a namespace routed through the host)
+	# reaches the container's own address, and Docker lets in its published
+	# ports. dfw still allows only what the rules say, from the client's own
+	# address.
+	ON=$RT serve rt1 -p 80/tcp -p 5432/tcp
+	wait_rules rt1
+	ip netns add dfwrt
+	ip link add dfwrt0 type veth peer name eth0 netns dfwrt
+	ip addr add 203.0.113.1/30 dev dfwrt0 && ip link set dfwrt0 up
+	ip -n dfwrt addr add 203.0.113.2/30 dev eth0 && ip -n dfwrt link set eth0 up
+	ip -n dfwrt route add default via 203.0.113.1
+	routed() { [ "$(ip netns exec dfwrt socat -T3 - "TCP:$(ipon rt1 $RT):$1,connect-timeout=3" </dev/null 2>/dev/null)" = hi ]; }
+	yes_ "routed: LAN host -> rt1:80, by its address, from its own" routed 80
+	no_ "routed: LAN host -> rt1:5432 (published, but no rule)" routed 5432
+	ip netns del dfwrt
+fi
+
+say "a container that uses another's network gets that one's rules"
+serve ns1
+docker run -d --name sc --network container:ns1 "$IMG" sleep infinity >/dev/null
+printf '%s\nallow [sc] -> %s\n' "$NETS" "$EXT" | write_rules $RULESD/nets.rules
+wait_rules ns1
+dfw check >"$DIR/check3" 2>&1
+yes_ "check says [sc] uses ns1's network" grep -qF "[sc] matches no running container on the filtered networks: it uses the network of [ns1]" "$DIR/check3"
+no_ "sc -> $EXT (its own rule matches nothing)" pings sc "$EXT"
+printf '%s\nallow [ns1] -> %s\n' "$NETS" "$EXT" | write_rules $RULESD/nets.rules
+yes_ "sc -> $EXT once ns1 may" pings sc "$EXT"
+docker rm -f ia1 ia2 v6a v6b rt1 sc ns1 >/dev/null 2>&1
+drop_rules $RULESD/nets.rules
+docker network rm $IPAM $V6 $RT >/dev/null 2>&1
 
 say "one network: other networks are left alone"
 yes_ "f, on $FREE with no rules, reaches the internet" web $F "$EXT2"

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"dfw/internal/docker"
@@ -359,6 +360,42 @@ func TestPeerPort(t *testing.T) {
 	for i, e := range es {
 		if peer, port := peerPort(e); peer != want[i][0] || port != want[i][1] {
 			t.Errorf("peerPort(%s) = %s %s, want %s %s", e, peer, port, want[i][0], want[i][1])
+		}
+	}
+}
+
+// TestSharing checks that a rule naming a container that uses a filtered
+// container's network says whose rules it gets.
+func TestSharing(t *testing.T) {
+	const vpnID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	cfg := rules.ParseConfig([]rules.File{{Name: "rules", Text: "network fw\nallow [vpn] -> internet\nallow [app], [sc], [tool], [lone], [nobody] -> internet\n"}})
+	w := &world{cfg: cfg, ctrs: []*ctr{{info: &docker.Container{ID: vpnID}, name: "vpn"}}}
+	sum := func(name, mode string, labels map[string]string) docker.Summary {
+		s := docker.Summary{Names: []string{"/" + name}, Labels: labels}
+		s.HostConfig.NetworkMode = mode
+		return s
+	}
+	all := []docker.Summary{
+		sum("app", "container:vpn", nil),
+		sum("p-sc-1", "container:"+vpnID, map[string]string{serviceLabel: "sc", projectLabel: "p"}),
+		sum("tool", "container:"+vpnID[:12], nil),
+		sum("lone", "container:elsewhere", nil), // not a filtered container
+		sum("vpn2", "default", nil),
+	}
+	got := w.sharing(all)
+	want := map[string]string{"app": "vpn", "sc": "vpn", "tool": "vpn"}
+	if !maps.Equal(got, want) {
+		t.Errorf("sharing = %v, want %v", got, want)
+	}
+	w.sharers = got
+	u := w.unmatched()
+	if len(u) != 5 {
+		t.Fatalf("unmatched = %q, want 5 names", u)
+	}
+	for _, x := range u {
+		shared := slices.ContainsFunc([]string{"[app]", "[sc]", "[tool]"}, func(n string) bool { return strings.Contains(x, n+" matches") })
+		if hint := strings.Contains(x, "gets [vpn]'s rules; name [vpn] instead"); hint != shared {
+			t.Errorf("%q: hint %v, want %v", x, hint, shared)
 		}
 	}
 }

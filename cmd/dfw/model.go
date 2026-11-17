@@ -47,6 +47,7 @@ type world struct {
 	links     []netlink.Link
 	byIndex   map[int]netlink.Link // links by index
 	unknown   []netlink.Link       // ports of filtered bridges with no container behind them
+	sharers   map[string]string    // a name in the rules -> the container whose network it shares
 	problems  []string             // containers or networks that couldn't be handled
 }
 
@@ -117,7 +118,44 @@ func gather(ctx context.Context, dc *docker.Client, cfg rules.Config, prev map[s
 			w.unknown = append(w.unknown, l)
 		}
 	}
+	if len(w.unmatched()) > 0 {
+		// Only to explain the warning, so a failure here changes nothing.
+		if all, err := dc.All(ctx); err == nil {
+			w.sharers = w.sharing(all)
+		}
+	}
 	return w, nil
+}
+
+// sharing finds the names in the rules that belong to a container sharing
+// a filtered container's network (--network container:NAME, or compose's
+// network_mode: service:NAME). Such a container has no network of its own,
+// so no rule can name it; its traffic gets the other container's rules.
+func (w *world) sharing(all []docker.Summary) map[string]string {
+	names := w.cfg.Names()
+	out := map[string]string{}
+	for _, s := range all {
+		target, ok := strings.CutPrefix(s.HostConfig.NetworkMode, "container:")
+		if !ok || target == "" {
+			continue
+		}
+		i := slices.IndexFunc(w.ctrs, func(c *ctr) bool { return target == c.name || strings.HasPrefix(c.info.ID, target) })
+		if i < 0 {
+			continue
+		}
+		for _, n := range s.Names {
+			name := strings.TrimPrefix(n, "/")
+			if strings.Contains(name, "/") {
+				continue // a legacy link's alias
+			}
+			for _, x := range []string{name, composeService(name, s.Labels)} {
+				if _, named := names[x]; named && x != "" {
+					out[x] = w.ctrs[i].name
+				}
+			}
+		}
+	}
+	return out
 }
 
 // classify records the filtered networks' bridges and sorts the host's
@@ -516,7 +554,11 @@ func (w *world) unmatched() []string {
 				found = true
 			}
 		}
-		if !found {
+		switch owner, shares := w.sharers[name]; {
+		case found:
+		case shares:
+			out = append(out, fmt.Sprintf("%s: [%s] matches no running container on the filtered networks: it uses the network of [%s], so it gets [%s]'s rules; name [%s] instead", pos, name, owner, owner, owner))
+		default:
 			out = append(out, fmt.Sprintf("%s: [%s] matches no running container on the filtered networks", pos, name))
 		}
 	}

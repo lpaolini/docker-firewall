@@ -197,6 +197,10 @@ allow can start at once; the rest are refused and marked again.
   so they can't be filtered and aren't included. On Docker's default
   `bridge` network, which has no embedded resolver, Docker falls back to
   8.8.8.8 and 8.8.4.4 when no other server is left, and so does dfw.
+- A container in another's network namespace (`--network container:NAME`)
+  sends through that container's veth, so it gets that container's rules.
+  A rule naming it matches nothing; when one does, dfw lists the running
+  containers to say whose network it uses.
 
 ## The `dfw run` loop
 

@@ -187,6 +187,24 @@ firewall between networks: Docker already isolates bridge networks from each
 other. So `allow [a] -> [b]`, with `a` and `b` on different networks, allows
 nothing in practice; put them on a common filtered network.
 
+### Network settings
+
+dfw reads each container's addresses from Docker, so a filtered bridge
+network's addressing doesn't matter: custom subnets, `--ip-range`,
+`--gateway`, `--aux-address`, fixed `--ip`, IPv6 and IPv6-only
+(`--ipv4=false`) networks all work, whatever IPAM driver assigned the
+addresses. `host` includes the network's gateway, wherever it is.
+
+With `com.docker.network.bridge.gateway_mode_ipv4=routed` (or `_ipv6`, or
+`nat-unprotected`), clients reach containers at their own addresses, without
+NAT. dfw filters that traffic like any other, and sees the client's real
+address.
+
+A container that uses another's network (`--network container:NAME`, or
+`network_mode: service:NAME` in compose) has no network of its own: its
+traffic gets the rules of the container whose network it uses, and rules
+naming it match nothing. `dfw check` says which container to name instead.
+
 ### How other networks are left alone
 
 At boot, Docker isn't running yet, so dfw can't tell which bridges belong to
