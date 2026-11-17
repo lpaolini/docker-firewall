@@ -1,4 +1,8 @@
-# `dfw` - Docker firewall
+![dfw](docs/images/teaser.png)
+
+# `dfw` — No fuss. No nonsense. No exceptions.
+
+*An MIT-licensed Docker firewall that quietly gets the job done.*
 
 Docker containers on a bridge network are, by default, free to talk to each
 other and to reach any destination outside.
