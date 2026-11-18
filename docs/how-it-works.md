@@ -3,6 +3,27 @@
 This explains what dfw does inside the host. The rule syntax and day-to-day
 use are in the [README](../README.md).
 
+## What dfw does
+
+- Loads a base table that blocks every container before Docker starts
+  ([Components](#components), [The base table](#the-base-table)).
+- Reads the rules files and keeps a validated copy as the rules in force
+  ([Which rules are in force](#which-rules-are-in-force)).
+- Watches Docker events, bridges, host addresses and its own table
+  ([The `dfw run` loop](#the-dfw-run-loop)).
+- Finds each container's veths and addresses, and resolves names and zones
+  ([Per-container chains](#per-container-chains), [Resolving rules](#resolving-rules)).
+- Leaves networks it doesn't filter open, and remembers them for the next boot
+  ([Other networks](#other-networks)).
+- Applies the whole table in one transaction and checks the kernel holds it
+  ([The `dfw run` loop](#the-dfw-run-loop)).
+- Cuts connections the rules no longer allow, and stale ones on reused IPs
+  ([The `dfw run` loop](#the-dfw-run-loop)).
+- Restores the table if anything else changes it
+  ([The `dfw run` loop](#the-dfw-run-loop)).
+- Turns on and off with `dfw enable` and `dfw disable`
+  ([Enabling and disabling](#enabling-and-disabling)).
+
 ## Guarantees
 
 - A container on a filtered network can send or receive nothing outside its
@@ -290,7 +311,8 @@ and allowed ones reconnect. It then writes the `docker.service` drop-in and enab
 deletes the table.
 
 Image builds on a filtered network don't work: their ports have no container
-behind them and stay blocked.
+behind them and stay blocked. `dfw run` warns about a port on a filtered
+bridge once it has had no container behind it for 10 seconds.
 
 ## Failure behaviour
 
@@ -330,7 +352,8 @@ attempts are retried after about a second.
   root, loaded into the real `nft`.
 - `test/gate.sh`: checks the kernel and Docker behaviour dfw depends on
   (`ct state` in a bridge table, the addresses the chains see, first packets
-  never escaping, DNS through the veth).
+  never escaping, DNS through the veth). At start, `dfw run` warns if
+  Docker's major version isn't one this test has passed on.
 - `test/integration.sh` and `test/reboot.sh`: end-to-end behaviour, including
   every guarantee above, across reboots, upgrades and package removal.
 
