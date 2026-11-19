@@ -126,8 +126,10 @@ comma-separated list. The destination may end in `:port`, `:port/tcp`,
 - **Rules are one-way.** Connections go from source to destination; only
   their replies come back.
 - **Ports are destination ports.** A port without a protocol means TCP and
-  UDP. `:icmp` means ICMP (ICMPv6 for IPv6), all types: `allow [foo] ->
-  internet:icmp` lets `foo` ping. No port means every protocol.
+  UDP. `:icmp` means ping: ICMP echo requests (ICMPv6 for IPv6), so
+  `allow [foo] -> internet:icmp` lets `foo` ping. ICMP errors about an
+  allowed connection, such as "fragmentation needed", always pass. No port
+  means every protocol, all ICMP included.
 - **Sources are matched as they arrive.** External clients of a published
   port keep their address, so `allow internet -> [bar]:443/tcp` works.
   Clients through `docker-proxy` (`127.0.0.1` publishes, IPv6 clients) arrive

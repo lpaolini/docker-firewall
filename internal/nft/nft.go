@@ -150,7 +150,9 @@ func strs(rs []rules.Range, suffix string) []string {
 	return out
 }
 
-// chains returns a container's two chains (docs/how-it-works.md).
+// chains returns a container's two chains (docs/how-it-works.md). The
+// :icmp sets allow pings: ICMP errors about a connection pass as related to
+// it, so an echo request is the only ICMP message they need to start.
 func chains(c Container) (out, in []string) {
 	k := Key(c.ID)
 	// ARP and neighbour discovery pass without rules, so they are held to
@@ -172,8 +174,8 @@ func chains(c Container) (out, in []string) {
 		"ip daddr . meta l4proto . th dport @" + k + "_o4p accept",
 		"ip6 daddr @" + k + "_o6 accept",
 		"ip6 daddr . meta l4proto . th dport @" + k + "_o6p accept",
-		"meta l4proto icmp ip daddr @" + k + "_o4i accept",
-		"meta l4proto ipv6-icmp ip6 daddr @" + k + "_o6i accept",
+		"icmp type echo-request ip daddr @" + k + "_o4i accept",
+		"icmpv6 type echo-request ip6 daddr @" + k + "_o6i accept",
 		"counter drop",
 	}
 	in = []string{
@@ -190,8 +192,8 @@ func chains(c Container) (out, in []string) {
 		"ip saddr . meta l4proto . th dport @" + k + "_i4p accept",
 		"ip6 saddr @" + k + "_i6 accept",
 		"ip6 saddr . meta l4proto . th dport @" + k + "_i6p accept",
-		"meta l4proto icmp ip saddr @" + k + "_i4i accept",
-		"meta l4proto ipv6-icmp ip6 saddr @" + k + "_i6i accept",
+		"icmp type echo-request ip saddr @" + k + "_i4i accept",
+		"icmpv6 type echo-request ip6 saddr @" + k + "_i6i accept",
 		"ct mark set ct mark | " + Denied + " counter drop",
 	}
 	return out, in

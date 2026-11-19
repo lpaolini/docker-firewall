@@ -181,7 +181,9 @@ connection as refused, then drops it.
 
 Allow sets are per container and per family: addresses and ranges for any
 protocol, address · protocol · port for port rules, and addresses for
-`:icmp`. Container names are resolved through the Docker API, never DNS.
+`:icmp`, which accept only echo requests: an ICMP error about a connection
+passes as `related` to it, so a ping is the only ICMP message a rule needs to
+start. Container names are resolved through the Docker API, never DNS.
 
 **Refused connections:** routed traffic to a published port is confirmed by
 conntrack before the bridge drops it, so a compromised container could

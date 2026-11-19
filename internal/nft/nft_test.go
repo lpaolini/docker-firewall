@@ -241,7 +241,7 @@ func TestChainOrder(t *testing.T) {
 	firstDstAccept := len(out)
 	for i, r := range out {
 		if strings.HasPrefix(r, "ip daddr") || strings.HasPrefix(r, "ip6 daddr") ||
-			strings.HasPrefix(r, "meta l4proto icmp") || strings.HasPrefix(r, "meta l4proto ipv6-icmp") {
+			strings.HasPrefix(r, "icmp type echo-request") || strings.HasPrefix(r, "icmpv6 type echo-request") {
 			firstDstAccept = i
 			break
 		}

@@ -182,8 +182,8 @@ table bridge fw {
 		ip daddr . meta l4proto . th dport @c0123456789abcdef_o4p accept
 		ip6 daddr @c0123456789abcdef_o6 accept
 		ip6 daddr . meta l4proto . th dport @c0123456789abcdef_o6p accept
-		meta l4proto icmp ip daddr @c0123456789abcdef_o4i accept
-		meta l4proto ipv6-icmp ip6 daddr @c0123456789abcdef_o6i accept
+		icmp type echo-request ip daddr @c0123456789abcdef_o4i accept
+		icmpv6 type echo-request ip6 daddr @c0123456789abcdef_o6i accept
 		counter drop
 	}
 	chain c0123456789abcdef_in {
@@ -199,8 +199,8 @@ table bridge fw {
 		ip saddr . meta l4proto . th dport @c0123456789abcdef_i4p accept
 		ip6 saddr @c0123456789abcdef_i6 accept
 		ip6 saddr . meta l4proto . th dport @c0123456789abcdef_i6p accept
-		meta l4proto icmp ip saddr @c0123456789abcdef_i4i accept
-		meta l4proto ipv6-icmp ip6 saddr @c0123456789abcdef_i6i accept
+		icmp type echo-request ip saddr @c0123456789abcdef_i4i accept
+		icmpv6 type echo-request ip6 saddr @c0123456789abcdef_i6i accept
 		ct mark set ct mark | 0x40000000 counter drop
 	}
 	set cfedcba9876543210_mac {
@@ -292,8 +292,8 @@ table bridge fw {
 		ip daddr . meta l4proto . th dport @cfedcba9876543210_o4p accept
 		ip6 daddr @cfedcba9876543210_o6 accept
 		ip6 daddr . meta l4proto . th dport @cfedcba9876543210_o6p accept
-		meta l4proto icmp ip daddr @cfedcba9876543210_o4i accept
-		meta l4proto ipv6-icmp ip6 daddr @cfedcba9876543210_o6i accept
+		icmp type echo-request ip daddr @cfedcba9876543210_o4i accept
+		icmpv6 type echo-request ip6 daddr @cfedcba9876543210_o6i accept
 		counter drop
 	}
 	chain cfedcba9876543210_in {
@@ -309,8 +309,8 @@ table bridge fw {
 		ip saddr . meta l4proto . th dport @cfedcba9876543210_i4p accept
 		ip6 saddr @cfedcba9876543210_i6 accept
 		ip6 saddr . meta l4proto . th dport @cfedcba9876543210_i6p accept
-		meta l4proto icmp ip saddr @cfedcba9876543210_i4i accept
-		meta l4proto ipv6-icmp ip6 saddr @cfedcba9876543210_i6i accept
+		icmp type echo-request ip saddr @cfedcba9876543210_i4i accept
+		icmpv6 type echo-request ip6 saddr @cfedcba9876543210_i6i accept
 		ct mark set ct mark | 0x40000000 counter drop
 	}
 }

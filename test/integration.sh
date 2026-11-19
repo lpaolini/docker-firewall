@@ -450,18 +450,30 @@ allow [lat] -> $EXT
 allow [fpl] -> $EXT
 allow [internet] -> $EXT
 allow [ic1] -> $EXT:icmp
-allow lan -> [ic2]:icmp
+allow lan -> [ic2]:icmp, [ic3]
 EOF
 
 say "icmp"
 serve ic1
 serve ic2
-wait_rules ic1; wait_rules ic2
+serve ic3
+wait_rules ic1; wait_rules ic2; wait_rules ic3
 yes_ "ic1 -> $EXT:icmp: ping works" pings ic1 "$EXT"
 no_ "ic1 -> $EXT: http (only icmp allowed)" web ic1 "$EXT"
 yes_ "d -> ic2 (lan -> ic2:icmp): ping works" pings $D "$(ip4 ic2)"
 no_ "d -> ic2:80 (only icmp accepted)" tcp $D "$(ip4 ic2)" 80
-docker rm -f ic1 ic2 >/dev/null
+# An ICMP timestamp request (type 13, with its checksum), sent as a raw IP
+# packet. tsreq succeeds if the target's tcpdump saw it arrive.
+tsreq() { # tsreq FROM TO
+	docker exec "$2" sh -c "timeout 5 tcpdump -p -n -i eth0 -c1 'icmp[0] == 13' >/tmp/ts 2>/dev/null" &
+	sleep 1
+	docker exec "$1" sh -c "printf '\015\000\340\312\022\064\000\001\000\000\000\000\000\000\000\000\000\000\000\000' | socat -u - IP4-SENDTO:$(ip4 "$2"):1"
+	wait
+	docker exec "$2" grep -q ICMP /tmp/ts
+}
+yes_ "d -> ic3 (lan -> ic3, every protocol): an ICMP timestamp request arrives" tsreq $D ic3
+no_ "d -> ic2 (lan -> ic2:icmp, ping only): an ICMP timestamp request" tsreq $D ic2
+docker rm -f ic1 ic2 ic3 >/dev/null
 
 say "published ports: only what the rules allow"
 serve pub -p 18181:80
