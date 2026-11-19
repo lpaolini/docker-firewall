@@ -1,3 +1,16 @@
+dfw (0.2.1) unstable; urgency=medium
+
+  * :icmp rules allow ping only: ICMP echo requests (ICMPv6 for IPv6).
+    They accepted every ICMP type that starts a connection, such as
+    timestamp requests. ICMP errors about an allowed connection still pass,
+    and a rule with no port still allows all ICMP.
+  * dfw diff [FILE] shows what dfw apply would change: the connections the
+    edited rules add to or remove from each running container's, and the
+    network lines added or removed. dfw check points to it when the files
+    differ from the applied rules.
+
+ -- dfw maintainers <lookap.dev@gmail.com>  Thu, 19 Nov 2026 23:28:06 +0100
+
 dfw (0.2.0) unstable; urgency=medium
 
   * When a rule names a container that uses another container's network
