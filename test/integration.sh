@@ -252,9 +252,16 @@ echo "allow [n] -> $EXT" | save_rules $RULESD/n.rules
 sleep 2
 no_ "n -> $EXT after saving a rule in rules.d, before dfw apply" pings $N "$EXT"
 dfw check >"$DIR/check2" 2>&1
-yes_ "check notes the rules differ from those applied" grep -q "run dfw apply" "$DIR/check2"
+yes_ "check notes the rules differ from those applied" grep -q "differ from those applied" "$DIR/check2"
+dfw diff >"$DIR/diff" 2>&1
+yes_ "diff shows the saved rule as an addition" grep -qE "^  \+ out +$EXT +any$" "$DIR/diff"
 yes_ "dfw apply" dfw apply
 yes_ "n -> $EXT after dfw apply" pings $N "$EXT"
+dfw diff >"$DIR/diff" 2>&1
+yes_ "diff shows no change once applied" grep -q "no running container's rules change" "$DIR/diff"
+: | save_rules $RULESD/n.rules
+dfw diff >"$DIR/diff" 2>&1
+yes_ "diff shows the removed rule" grep -qE "^  - out +$EXT +any$" "$DIR/diff"
 drop_rules $RULESD/n.rules
 no_ "n -> $EXT after removing the rule and applying" pings $N "$EXT"
 docker exec -d $A sh -c "while sleep 0.2; do echo tick; done | socat - TCP:$(ip4 $B):5432 >/tmp/rev 2>&1"

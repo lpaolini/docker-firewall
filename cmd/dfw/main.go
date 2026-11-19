@@ -43,6 +43,7 @@ ExecStartPre=/usr/sbin/dfw init
 const usage = `usage: dfw <command>
 
   check [FILE]   check the rules in a specified file or all
+  diff [FILE]    show what apply would change
   apply          apply all rules
   enable         start filtering
   disable        stop filtering
@@ -63,7 +64,7 @@ func main() {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	_ = fs.Parse(args)
-	if fs.NArg() > 1 || fs.NArg() == 1 && cmd != "check" {
+	if fs.NArg() > 1 || fs.NArg() == 1 && cmd != "check" && cmd != "diff" {
 		fs.Usage()
 		os.Exit(2)
 	}
@@ -78,6 +79,8 @@ func main() {
 		if errs, _, err = cmdCheck(fs.Arg(0), true); err == nil && errs > 0 {
 			os.Exit(1)
 		}
+	case "diff":
+		err = cmdDiff(fs.Arg(0))
 	case "enable":
 		err = cmdEnable()
 	case "apply":
@@ -230,7 +233,7 @@ func cmdCheck(file string, note bool) (int, []rules.File, error) {
 	}
 	cfg := rules.ParseConfig(files)
 	if note && file == "" && serviceActive() && !sameAsActive(files) {
-		fmt.Println("note: the rules differ from those applied; run dfw apply to apply them")
+		fmt.Println("note: the rules differ from those applied; dfw diff shows how, and dfw apply applies them")
 	}
 	for _, e := range cfg.Errors {
 		fmt.Printf("ERROR %s\n", e)

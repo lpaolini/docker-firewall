@@ -139,7 +139,8 @@ comma-separated list. The destination may end in `:port`, `:port/tcp`,
   applies them at once and cuts connections that lost permission. It returns
   once dfw confirms both, or fails after 30 seconds (see `journalctl -u dfw`).
   No container is recreated. `dfw check` says when the files differ from the
-  applied rules.
+  applied rules, and `sudo dfw diff` shows what applying them would change
+  for each running container.
 - **At start, `dfw.service` applies the files if they are valid**, and cuts
   the connections of containers that lost a permission, by edited rules or
   by Docker changes made while it was down, so only allowed ones resume.
@@ -167,7 +168,8 @@ no rule mentions, so review first:
    drop-in that loads the base table before Docker starts, and starts
    `dfw.service`.
 
-From then on, edit the files and run `sudo dfw apply`; `dfw enable` refuses
+From then on, edit the files, review the change with `sudo dfw diff`, and
+run `sudo dfw apply`; `dfw enable` refuses
 while dfw is running. `sudo dfw disable`
 stops the service, removes the drop-in and deletes the table; it is the only
 command that opens the containers.

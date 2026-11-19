@@ -3,7 +3,7 @@
 dfw \- firewall for the containers on chosen Docker networks
 .SH SYNOPSIS
 .B dfw
-.RB { check " [" \fIFILE\fP "] | " apply | enable | disable | version }
+.RB { check " [" \fIFILE\fP "] | " diff " [" \fIFILE\fP "] | " apply | enable | disable | version }
 .SH DESCRIPTION
 .B dfw
 filters the traffic of the containers on the Docker bridge networks named in
@@ -21,6 +21,15 @@ networks would get, and their ports with no container behind them. With
 .IR FILE ,
 read the rules from that file alone, to check it before installing it.
 Changes nothing. Exits 1 if the rules have errors.
+.TP
+.BR diff " [" \fIFILE\fP ]
+Show what
+.B apply
+would change: for each running container on the filtered networks, the
+connections the edited rules (or
+.I FILE
+alone) add to or remove from the rules last applied. Changes nothing. Exits
+1 if the rules have errors or dfw is not enabled.
 .TP
 .B apply
 Apply the edited rules to the running dfw and wait, up to 30 seconds, until
